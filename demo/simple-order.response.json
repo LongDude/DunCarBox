@@ -1,0 +1,139 @@
+{
+  "status": "success",
+  "metrics": {
+    "total_items": 2,
+    "packed_items": 2,
+    "unpacked_items": 0,
+    "boxes_used": 1,
+    "boxes_by_type": {
+      "box-s": 1
+    },
+    "total_box_volume": 9000000,
+    "used_volume": 960000,
+    "empty_volume": 8040000,
+    "fill_ratio": 0.106667,
+    "total_weight": 500
+  },
+  "packed_boxes": [
+    {
+      "name": "Коробка S",
+      "length": 300,
+      "width": 200,
+      "height": 150,
+      "max_weight": 5000,
+      "id": "box-s:1",
+      "box_type_id": "box-s",
+      "total_weight": 500,
+      "used_volume": 960000,
+      "fill_ratio": 0.106667,
+      "placements": [
+        {
+          "item_instance_id": "tea:1",
+          "product_id": "tea",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 100,
+            "width": 80,
+            "height": 60
+          },
+          "orientation": "LWH",
+          "step": 1
+        },
+        {
+          "item_instance_id": "tea:2",
+          "product_id": "tea",
+          "position": {
+            "x": 100,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 100,
+            "width": 80,
+            "height": 60
+          },
+          "orientation": "LWH",
+          "step": 2
+        }
+      ],
+      "instructions": [
+        {
+          "step": 0,
+          "action": "prepare_box",
+          "box_id": "box-s:1",
+          "message": "Возьмите коробку «Коробка S» (box-s:1), внутренние размеры 300 × 200 × 150 мм. Передний левый нижний угол — начало координат.",
+          "item_instance_id": null,
+          "product_id": null,
+          "position": null,
+          "dimensions": null,
+          "orientation": null
+        },
+        {
+          "step": 1,
+          "action": "place_item",
+          "box_id": "box-s:1",
+          "message": "Возьмите «Чай, подарочная упаковка», единицу tea:1. Ориентируйте: 100 мм вправо, 80 мм вглубь, 60 мм вверх (LWH). Поместите нижний передний левый угол на 0 мм вправо, 0 мм вглубь и 0 мм от дна коробки.",
+          "item_instance_id": "tea:1",
+          "product_id": "tea",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 100,
+            "width": 80,
+            "height": 60
+          },
+          "orientation": "LWH"
+        },
+        {
+          "step": 2,
+          "action": "place_item",
+          "box_id": "box-s:1",
+          "message": "Возьмите «Чай, подарочная упаковка», единицу tea:2. Ориентируйте: 100 мм вправо, 80 мм вглубь, 60 мм вверх (LWH). Поместите нижний передний левый угол на 100 мм вправо, 0 мм вглубь и 0 мм от дна коробки.",
+          "item_instance_id": "tea:2",
+          "product_id": "tea",
+          "position": {
+            "x": 100,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 100,
+            "width": 80,
+            "height": 60
+          },
+          "orientation": "LWH"
+        },
+        {
+          "step": 3,
+          "action": "close_box",
+          "box_id": "box-s:1",
+          "message": "Проверьте 2 ед. товара в коробке box-s:1. Вес товаров — 500 г из допустимых 5000 г. Закройте коробку.",
+          "item_instance_id": null,
+          "product_id": null,
+          "position": null,
+          "dimensions": null,
+          "orientation": null
+        }
+      ]
+    }
+  ],
+  "unpacked_items": [],
+  "issues": [
+    {
+      "code": "DEMO_STUB",
+      "severity": "info",
+      "message": "Демонстрационный фиксированный план. Алгоритм упаковки ещё не подключён; оптимальность не проверялась.",
+      "item_instance_ids": [],
+      "box_type_ids": []
+    }
+  ],
+  "alternatives": [],
+  "algorithm_version": "demo-stub-v1"
+}

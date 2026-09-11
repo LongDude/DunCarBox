@@ -1,0 +1,26 @@
+[
+  {
+    "id": "simple-order",
+    "name": "Простой заказ",
+    "description": "Две подарочные упаковки чая в одной коробке S.",
+    "expected_status": "success"
+  },
+  {
+    "id": "multiple-boxes",
+    "name": "Несколько коробок",
+    "description": "Два чайника с фильтрами и термосами в двух коробках M; показан поворот товара.",
+    "expected_status": "success"
+  },
+  {
+    "id": "oversized",
+    "name": "Товар не помещается",
+    "description": "Тубус длиной 650 мм превышает размеры всех предложенных коробок.",
+    "expected_status": "impossible"
+  },
+  {
+    "id": "stock-shortage",
+    "name": "Нехватка коробок",
+    "description": "Для трёх подарочных наборов осталась только одна подходящая коробка.",
+    "expected_status": "partial"
+  }
+]

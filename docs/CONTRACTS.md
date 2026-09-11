@@ -1,0 +1,156 @@
+# DunCarBox — контракт v1 (SOURCE OF TRUTH)
+
+Зафиксирован для foundation. Изменения согласует интегратор. Python-модели:
+`backend/app/domain/models.py`; HTTP-валидация: `backend/app/schemas/packing.py`.
+Доменные модели — стандартные dataclasses, без FastAPI, Pydantic, ORM и UI.
+JSON использует snake_case. Неизвестные поля входа запрещены.
+
+## Единицы и координаты
+
+- Все размеры и координаты — **целые миллиметры**, вес — **целые граммы**, объём — мм³.
+- Внутренние размеры коробки: x = length, y = width/depth, z = height.
+- Начало координат — передний левый нижний внутренний угол. x вправо, y вглубь, z вверх.
+- `position` — минимальный угол товара, не центр. Границы товара: `[x,x+length]` и аналогично.
+- Касание граней разрешено; положительный объём пересечения запрещён.
+- Для Three.js с осью Y вверх отображение точки `(x,y,z)` → `(x,z,-y)`;
+  центр mesh рассчитывается после прибавления половины ориентированных размеров.
+- `orientation` — одна из `LWH,LHW,WLH,WHL,HLW,HWL`: исходные оси товара,
+  назначенные осям x,y,z коробки в этом порядке. Например `WLH` даёт
+  `dimensions={length:product.width,width:product.length,height:product.height}`.
+- Если `allow_rotation=false`, допустима только `LWH`. Если true — уникальные
+  перестановки, максимум 6; при одинаковых размерах первая по указанному порядку.
+- Геометрия ортогональная. Зазоры, хрупкость, нагрузка на товар, устойчивость и
+  возможность фактического движения товара при укладке пока не моделируются.
+
+## Входные модели
+
+| Модель | Поля |
+|---|---|
+| BoxType | id, name, length, width, height, max_weight, available_count |
+| Product | id, name, length, width, height, weight, quantity, allow_rotation=true |
+| PackingOptions | include_alternatives=true, max_alternatives=3 (0..5) |
+| PackingRequest | boxes: BoxType[], products: Product[], options: PackingOptions={} |
+
+ID: `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`, уникален внутри своего массива.
+Название: непустая строка до 200 символов, пробелы по краям удаляются.
+Размеры: 1..100000 мм. Вес/max_weight: 1..100000000 г.
+available_count: 0..10000; quantity: 1..1000. Не более 100 типов коробок,
+200 строк товаров и 1000 физических единиц всего. Дроби, строки вместо чисел,
+булевы вместо чисел и неизвестные поля отклоняются с HTTP 422.
+`products` непустой; `boxes=[]` допустим как предметно невозможный заказ.
+Нулевой остаток допустим и должен учитываться движком, не удаляться из запроса.
+
+## Результат и доменные модели
+
+Все перечисленные поля присутствуют в JSON; optional-ссылки инструкций равны `null`.
+В домене массивы представлены tuple; `boxes_by_type` — dict[str,int].
+
+| Модель | Поля и значение |
+|---|---|
+| ItemInstance | id=`{product_id}:{unit_index}`, product_id, name, unit_index (1-based), length, width, height, weight, allow_rotation |
+| Position | x, y, z — неотрицательные целые мм |
+| Dimensions | length, width, height — фактические размеры после поворота |
+| Placement | item_instance_id, product_id, position, dimensions, orientation, step |
+| PackedBox | id=`{box_type_id}:{index}`, box_type_id, name, length, width, height, max_weight, total_weight, used_volume, fill_ratio, placements[], instructions[] |
+| PackingMetrics | total_items, packed_items, unpacked_items, boxes_used, boxes_by_type, total_box_volume, used_volume, empty_volume, fill_ratio, total_weight |
+| PackingIssue | code, severity (`info/warning/error`), message, item_instance_ids[], box_type_ids[] |
+| PackingInstructionStep | step, action, box_id, message, item_instance_id, product_id, position, dimensions, orientation |
+| PackingAlternative | id, description, status, metrics, packed_boxes[], unpacked_items[], issues[] |
+| PackingResult | status, metrics, packed_boxes[], unpacked_items[], issues[], alternatives[], algorithm_version |
+
+`fill_ratio` — доля 0..1, округление до 6 знаков; общий коэффициент взвешен по
+объёму коробок. Для нуля коробок равен 0. `total_weight` учитывает только уложенные
+товары, без тары. `used_volume` — сумма объёмов уложенных единиц;
+`empty_volume=total_box_volume-used_volume`. `boxes_by_type` содержит только
+использованные типы. Не возвращать пустые коробки.
+
+`success`: все единицы размещены. `partial`: размещена хотя бы одна, но не все.
+`impossible`: ни одной. Для валидного произвольного заказа это ожидаемые HTTP 200
+результаты **будущего движка**, а не ошибки транспорта.
+
+Коды issues: `ITEM_TOO_LARGE`, `ITEM_TOO_HEAVY`, `BOX_STOCK_EXHAUSTED`,
+`NO_BOX_TYPES`, `NO_FEASIBLE_PLACEMENT`, `PARTIAL_PACKING`, `SIMILAR_ALTERNATIVES`,
+`DEMO_STUB`. Причины объясняются по-русски. `NO_FEASIBLE_PLACEMENT` означает, что
+эвристика не нашла размещение; это не математическое доказательство невозможности.
+Каждая неуложенная единица должна присутствовать в `unpacked_items` и быть связана
+с объясняющим issue. Альтернативы — полноценные планы, без рекурсивных alternatives.
+Если альтернативы отключены или max_alternatives=0, возвращается пустой массив.
+
+## Инструкции и детерминизм
+
+- Единицы разворачиваются по product.id (лексикографически), затем unit_index численно.
+- Одинаковый ввод, включая options, и версия движка дают одинаковый JSON. Нет UUID,
+  времени выполнения, timestamp, случайных цветов или случайного seed в результате.
+- Перестановка строк boxes/products не должна менять результат. Движок использует
+  стабильные критерии выбора и явно документирует tie-break в PACKING_ENGINE.md.
+- PackedBox упорядочены по порядку открытия; index для каждого типа начинается с 1.
+- placements упорядочены по step. step начинается с 1 и непрерывен внутри коробки.
+- instructions: шаг 0 `prepare_box`, шаги 1..N `place_item`, N+1 `close_box`.
+  У place_item ссылки, позиция, ориентация и размеры точно совпадают с Placement.
+  У prepare/close ссылки на товар и геометрию null. box_id присутствует всегда.
+- Сервис генерирует русские инструкции из placements и входных товаров, движку
+  разрешено возвращать `PackedBox.instructions=()`. Не дублировать генерацию в UI.
+- При показе шага k товары со step < k уже уложены, step = k — текущий,
+  step > k скрыты. На prepare коробка пуста, на close показаны все товары.
+- unpacked_items упорядочены по product_id и unit_index; issues — по code и
+  item_instance_ids; альтернативы — по числу неуложенных единиц, числу коробок,
+  пустому объёму, затем id. Все tie-break правила не зависят от hash Python.
+
+## REST API /api/v1
+
+| Метод | URL | Ответ |
+|---|---|---|
+| GET | /health | 200 `{status:"ok",api_version:"v1",engine:"demo-stub-v1"}` |
+| GET | /boxes | 200 BoxType[] (по id) |
+| POST | /boxes | BoxType → 201 BoxType; дубликат id → 409 |
+| PUT | /boxes/{id} | полная BoxType → 200; id тела должен совпасть с URL |
+| DELETE | /boxes/{id} | 204 без тела; отсутствие → 404 |
+| POST | /pack | PackingRequest → 200 PackingResult |
+| GET | /demo/scenarios | 200 `[{id,name,description,expected_status}]` |
+| GET | /demo/scenarios/{id} | 200 PackingRequest; отсутствие → 404 |
+
+POST /pack всегда получает явный snapshot boxes. Каталог /boxes хранится только в PostgreSQL,
+при первом запуске заполняется демо-типами; удалённые записи не восстанавливаются
+при перезапуске. Расчёт не резервирует и не списывает остатки и не сохраняет заказ.
+Это позволяет сравнивать планы без побочных эффектов. Orders/history отложены.
+
+**Временный foundation stub:** распознаёт только входные boxes/products из
+`demo/*.request.json` и возвращает соответствующий проверенный `.response.json`.
+options управляет количеством альтернатив. Остальные валидные запросы → HTTP 503,
+код `ENGINE_NOT_IMPLEMENTED`. Ответы fixture содержат issue `DEMO_STUB` и
+algorithm_version `demo-stub-v1`. Stub не является packing-алгоритмом.
+
+Ошибки всегда имеют оболочку:
+
+```json
+{"error":{"code":"VALIDATION_ERROR","message":"Запрос не прошёл проверку.","details":[{"field":"body.products.0.length","message":"Input should be greater than 0","type":"greater_than"}]}}
+```
+
+Коды HTTP: 422 `VALIDATION_ERROR` (включая синтаксически некорректный JSON),
+400 `HTTP_ERROR` (например, тело в некорректной UTF-8 кодировке), 404 `NOT_FOUND`,
+409 `CONFLICT`, 503 `ENGINE_NOT_IMPLEMENTED`, 500 `INTERNAL_ERROR`.
+details — массив `{field,message,type}`, пустой для ошибок без привязки к полю.
+Не показывать traceback, SQL или внутренние пути клиенту.
+Неподдерживаемый HTTP-метод: 405 `METHOD_NOT_ALLOWED`, с заголовком Allow.
+
+## Пример запроса
+
+```json
+{
+  "boxes": [{"id":"box-s","name":"Коробка S","length":300,"width":200,"height":150,"max_weight":5000,"available_count":5}],
+  "products": [{"id":"tea","name":"Чай, подарочная упаковка","length":100,"width":80,"height":60,"weight":250,"quantity":2,"allow_rotation":true}],
+  "options": {"include_alternatives":true,"max_alternatives":3}
+}
+```
+
+Полные исполняемые примеры запросов и ответов (включая инструкции, метрики,
+success/partial/impossible) хранятся попарно в `demo/`.
+Фрагмент Placement для второго товара простого сценария:
+
+```json
+{"item_instance_id":"tea:2","product_id":"tea","position":{"x":100,"y":0,"z":0},"dimensions":{"length":100,"width":80,"height":60},"orientation":"LWH","step":2}
+```
+
+Точка подключения движка: `app.domain.interfaces.PackingEngine.pack(request)`;
+сервис получает реализацию через конструктор, FastAPI — через app factory.
+Frontend использует контрактные типы `frontend/src/types/packing.ts`.

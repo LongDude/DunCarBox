@@ -1,0 +1,52 @@
+{
+  "status": "impossible",
+  "metrics": {
+    "total_items": 1,
+    "packed_items": 0,
+    "unpacked_items": 1,
+    "boxes_used": 0,
+    "boxes_by_type": {},
+    "total_box_volume": 0,
+    "used_volume": 0,
+    "empty_volume": 0,
+    "fill_ratio": 0,
+    "total_weight": 0
+  },
+  "packed_boxes": [],
+  "unpacked_items": [
+    {
+      "name": "Постер в прямоугольном тубусе",
+      "length": 650,
+      "width": 80,
+      "height": 80,
+      "weight": 700,
+      "allow_rotation": true,
+      "id": "poster:1",
+      "product_id": "poster",
+      "unit_index": 1
+    }
+  ],
+  "issues": [
+    {
+      "code": "DEMO_STUB",
+      "severity": "info",
+      "message": "Демонстрационный фиксированный план. Алгоритм упаковки ещё не подключён; оптимальность не проверялась.",
+      "item_instance_ids": [],
+      "box_type_ids": []
+    },
+    {
+      "code": "ITEM_TOO_LARGE",
+      "severity": "error",
+      "message": "Тубус длиной 650 мм не помещается ни в одну доступную коробку ни при одном разрешённом повороте: наибольшая сторона коробки — 400 мм.",
+      "item_instance_ids": [
+        "poster:1"
+      ],
+      "box_type_ids": [
+        "box-m",
+        "box-s"
+      ]
+    }
+  ],
+  "alternatives": [],
+  "algorithm_version": "demo-stub-v1"
+}

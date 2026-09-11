@@ -1,0 +1,49 @@
+{
+  "boxes": [
+    {
+      "id": "box-m",
+      "name": "Коробка M",
+      "length": 400,
+      "width": 300,
+      "height": 250,
+      "max_weight": 10000,
+      "available_count": 3
+    }
+  ],
+  "products": [
+    {
+      "id": "filters",
+      "name": "Набор фильтров для воды",
+      "length": 120,
+      "width": 80,
+      "height": 40,
+      "weight": 150,
+      "quantity": 2,
+      "allow_rotation": true
+    },
+    {
+      "id": "kettle",
+      "name": "Чайник в заводской упаковке",
+      "length": 220,
+      "width": 160,
+      "height": 200,
+      "weight": 1100,
+      "quantity": 2,
+      "allow_rotation": false
+    },
+    {
+      "id": "thermos",
+      "name": "Термос в индивидуальной коробке",
+      "length": 70,
+      "width": 70,
+      "height": 190,
+      "weight": 350,
+      "quantity": 2,
+      "allow_rotation": false
+    }
+  ],
+  "options": {
+    "include_alternatives": true,
+    "max_alternatives": 3
+  }
+}

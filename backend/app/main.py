@@ -8,7 +8,7 @@ from app.api.errors import register_error_handlers
 from app.api.routes import router
 from app.config import Settings
 from app.domain.interfaces import PackingEngine
-from app.packing.stub import DemoPackingEngine
+from app.packing import DeterministicPackingEngine
 from app.services.fixtures import DemoFixtures
 from app.services.packing import PackingService
 from app.storage.boxes import PostgresBoxRepository
@@ -22,7 +22,7 @@ def create_app(settings: Settings | None = None, engine: PackingEngine | None = 
         fixtures = DemoFixtures(configuration.demo_dir)
         repository = PostgresBoxRepository(configuration.database_url)
         repository.initialize(fixtures.catalog)
-        selected_engine = engine if engine is not None else DemoPackingEngine(fixtures.pairs)
+        selected_engine = engine if engine is not None else DeterministicPackingEngine()
         application.state.box_repository = repository
         application.state.demo_fixtures = fixtures
         application.state.packing_service = PackingService(selected_engine)
@@ -33,7 +33,7 @@ def create_app(settings: Settings | None = None, engine: PackingEngine | None = 
         title="DunCarBox",
         version="0.1.0",
         lifespan=lifespan,
-        description="Foundation API. Packing currently replays fixed demo scenarios.",
+        description="Deterministic 3D order packing with PostgreSQL box catalog and instructions.",
     )
     register_error_handlers(application)
     application.add_middleware(

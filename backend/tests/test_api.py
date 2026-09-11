@@ -4,9 +4,13 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import TypeAdapter
 
 from app.config import DEFAULT_DATABASE_URL, Settings
+from app.domain.models import PackingResult
 from app.main import create_app
+from app.packing.validation import validate_solution
+from app.schemas.packing import PackingRequestSchema
 
 
 def test_default_settings_resolve_from_backend_directory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -23,14 +27,14 @@ def test_health_and_openapi(client: TestClient) -> None:
     assert client.get("/api/v1/health").json() == {
         "status": "ok",
         "api_version": "v1",
-        "engine": "demo-stub-v1",
+        "engine": "candidate-packing-v1",
     }
     schema = client.get("/openapi.json").json()
     response = schema["paths"]["/api/v1/pack"]["post"]["responses"]
     assert response["422"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/ErrorResponse"
     )
-    assert {"200", "422", "503"} <= response.keys()
+    assert {"200", "422"} <= response.keys()
     wrong_method = client.post("/api/v1/health")
     assert wrong_method.status_code == 405
     assert "GET" in wrong_method.headers["allow"]
@@ -45,7 +49,7 @@ def test_health_and_openapi(client: TestClient) -> None:
         "stock-shortage",
     ],
 )
-def test_demo_api_is_deterministic_and_matches_snapshot(
+def test_demo_api_is_deterministic_and_physically_valid(
     client: TestClient,
     settings: Settings,
     scenario_id: str,
@@ -58,7 +62,21 @@ def test_demo_api_is_deterministic_and_matches_snapshot(
     expected = json.loads(
         (settings.demo_dir / f"{scenario_id}.response.json").read_text(encoding="utf-8")
     )
-    assert first.json() == expected
+    result = first.json()
+    assert result["status"] == expected["status"]
+    assert result["metrics"]["packed_items"] == expected["metrics"]["packed_items"]
+    assert result["metrics"]["boxes_used"] == expected["metrics"]["boxes_used"]
+    assert result["algorithm_version"] == "candidate-packing-v1"
+    assert not any(issue["code"] == "DEMO_STUB" for issue in result["issues"])
+    validate_solution(
+        PackingRequestSchema.model_validate(request).to_domain(),
+        TypeAdapter(PackingResult).validate_python(result),
+    )
+    for plan in [result, *result["alternatives"]]:
+        for box in plan["packed_boxes"]:
+            assert len(box["instructions"]) == len(box["placements"]) + 2
+            assert box["instructions"][0]["action"] == "prepare_box"
+            assert box["instructions"][-1]["action"] == "close_box"
     request["boxes"].reverse()
     request["products"].reverse()
     assert client.post("/api/v1/pack", json=request).content == first.content
@@ -106,12 +124,17 @@ def test_pack_uses_snapshot_without_mutating_catalog(client: TestClient, order: 
     assert client.get("/api/v1/boxes").json() == []
 
 
-def test_unknown_order_is_explicitly_unsupported(client: TestClient, order: dict) -> None:
+def test_arbitrary_order_uses_real_engine(client: TestClient, order: dict) -> None:
     order["products"][0]["quantity"] = 3
     response = client.post("/api/v1/pack", json=order)
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "ENGINE_NOT_IMPLEMENTED"
-    assert response.json()["error"]["details"] == []
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "success"
+    assert result["metrics"]["packed_items"] == 3
+    validate_solution(
+        PackingRequestSchema.model_validate(order).to_domain(),
+        TypeAdapter(PackingResult).validate_python(result),
+    )
 
 
 def test_error_envelope_for_unknown_paths_and_bad_json(client: TestClient) -> None:

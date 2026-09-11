@@ -91,9 +91,6 @@ def delete_box(
     "/pack",
     response_model=PackingResultSchema,
     tags=["packing"],
-    responses={
-        503: {"model": ErrorResponse, "description": "Foundation stub: unknown demo input"},
-    },
 )
 def pack(
     payload: PackingRequestSchema,

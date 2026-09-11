@@ -1,6 +1,6 @@
 # DunCarBox — контракт v1 (SOURCE OF TRUTH)
 
-Зафиксирован для foundation. Изменения согласует интегратор. Python-модели:
+Зафиксирован для интегрированного MVP. Изменения согласует интегратор. Python-модели:
 `backend/app/domain/models.py`; HTTP-валидация: `backend/app/schemas/packing.py`.
 Доменные модели — стандартные dataclasses, без FastAPI, Pydantic, ORM и UI.
 JSON использует snake_case. Неизвестные поля входа запрещены.
@@ -19,8 +19,11 @@ JSON использует snake_case. Неизвестные поля входа
   `dimensions={length:product.width,width:product.length,height:product.height}`.
 - Если `allow_rotation=false`, допустима только `LWH`. Если true — уникальные
   перестановки, максимум 6; при одинаковых размерах первая по указанному порядку.
-- Геометрия ортогональная. Зазоры, хрупкость, нагрузка на товар, устойчивость и
-  возможность фактического движения товара при укладке пока не моделируются.
+- Геометрия ортогональная. Товар стоит на дне или имеет опору минимум под 80%
+  площади основания от ранее уложенных товаров. Порог задаётся EngineOptions
+  при создании ядра и не является полем HTTP v1. Центр масс, хрупкость,
+  нагрузки, зазоры и траектория загрузки не моделируются; доля опоры не доказывает
+  механическую устойчивость всей укладки.
 
 ## Входные модели
 
@@ -66,7 +69,7 @@ available_count: 0..10000; quantity: 1..1000. Не более 100 типов к�
 
 `success`: все единицы размещены. `partial`: размещена хотя бы одна, но не все.
 `impossible`: ни одной. Для валидного произвольного заказа это ожидаемые HTTP 200
-результаты **будущего движка**, а не ошибки транспорта.
+результаты действующего движка, а не ошибки транспорта.
 
 Коды issues: `ITEM_TOO_LARGE`, `ITEM_TOO_HEAVY`, `BOX_STOCK_EXHAUSTED`,
 `NO_BOX_TYPES`, `NO_FEASIBLE_PLACEMENT`, `PARTIAL_PACKING`, `SIMILAR_ALTERNATIVES`,
@@ -100,7 +103,7 @@ available_count: 0..10000; quantity: 1..1000. Не более 100 типов к�
 
 | Метод | URL | Ответ |
 |---|---|---|
-| GET | /health | 200 `{status:"ok",api_version:"v1",engine:"demo-stub-v1"}` |
+| GET | /health | 200 `{status:"ok",api_version:"v1",engine:"candidate-packing-v1"}` |
 | GET | /boxes | 200 BoxType[] (по id) |
 | POST | /boxes | BoxType → 201 BoxType; дубликат id → 409 |
 | PUT | /boxes/{id} | полная BoxType → 200; id тела должен совпасть с URL |
@@ -114,11 +117,17 @@ POST /pack всегда получает явный snapshot boxes. Катало
 при перезапуске. Расчёт не резервирует и не списывает остатки и не сохраняет заказ.
 Это позволяет сравнивать планы без побочных эффектов. Orders/history отложены.
 
-**Временный foundation stub:** распознаёт только входные boxes/products из
-`demo/*.request.json` и возвращает соответствующий проверенный `.response.json`.
-options управляет количеством альтернатив. Остальные валидные запросы → HTTP 503,
-код `ENGINE_NOT_IMPLEMENTED`. Ответы fixture содержат issue `DEMO_STUB` и
-algorithm_version `demo-stub-v1`. Stub не является packing-алгоритмом.
+**Основной серверный режим:** `DeterministicPackingEngine`, версия
+`candidate-packing-v1`, вычисляет размещения для любого валидного входа в пределах
+ограничений API. До 12 детерминированных стартов; до трёх найденных альтернатив,
+не более запрошенного max_alternatives. Отсутствие альтернатив допустимо.
+Результат не обязан повторять статические fixture-размещения.
+
+**Автономный demo-режим frontend:** воспроизводит `demo/*.request.json` /
+`.response.json`, всегда показывает DEMO_STUB / demo-stub-v1. Изменённый
+заказ в этом режиме даёт ENGINE_NOT_IMPLEMENTED; для него нужно выбрать сервер.
+Python DemoPackingEngine сохранён как явно подключаемый fixture adapter;
+default app factory его не использует.
 
 Ошибки всегда имеют оболочку:
 
@@ -128,7 +137,8 @@ algorithm_version `demo-stub-v1`. Stub не является packing-алгор�
 
 Коды HTTP: 422 `VALIDATION_ERROR` (включая синтаксически некорректный JSON),
 400 `HTTP_ERROR` (например, тело в некорректной UTF-8 кодировке), 404 `NOT_FOUND`,
-409 `CONFLICT`, 503 `ENGINE_NOT_IMPLEMENTED`, 500 `INTERNAL_ERROR`.
+409 `CONFLICT`, 500 `INTERNAL_ERROR`. `ENGINE_NOT_IMPLEMENTED` / 503 используется
+только fixture-adapter, а не стандартным серверным расчётом.
 details — массив `{field,message,type}`, пустой для ошибок без привязки к полю.
 Не показывать traceback, SQL или внутренние пути клиенту.
 Неподдерживаемый HTTP-метод: 405 `METHOD_NOT_ALLOWED`, с заголовком Allow.
@@ -143,8 +153,9 @@ details — массив `{field,message,type}`, пустой для ошибо�
 }
 ```
 
-Полные исполняемые примеры запросов и ответов (включая инструкции, метрики,
-success/partial/impossible) хранятся попарно в `demo/`.
+Полные статические примеры запросов и ответов (включая инструкции, метрики,
+success/partial/impossible) хранятся попарно в `demo/`; реальные ответы проверяются
+по геометрии, метрикам и инструкциям, а не по совпадению со статическим планом.
 Фрагмент Placement для второго товара простого сценария:
 
 ```json

@@ -61,4 +61,16 @@ describe('live API boundary', () => {
     await vi.advanceTimersByTimeAsync(15_000);
     await timeoutAssertion;
   });
+
+  it('allows a packing calculation to finish after the catalog request timeout', async () => {
+    vi.useFakeTimers();
+    const response = demoFixtures['simple-order'].response;
+    vi.stubGlobal('fetch', vi.fn((_url: string, options: RequestInit) => new Promise((resolve, reject) => {
+      options.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      setTimeout(() => resolve(new Response(JSON.stringify(response))), 20_000);
+    })));
+    const pending = createDataSource('api').pack(demoFixtures['simple-order'].request);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(pending).resolves.toEqual(response);
+  });
 });

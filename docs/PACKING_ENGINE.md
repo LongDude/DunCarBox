@@ -3,7 +3,7 @@
 Реализован `app.packing.engine.DeterministicPackingEngine`, версия
 `candidate-packing-v1`. Ядро использует стандартную библиотеку Python и domain
 dataclasses, без HTTP, PostgreSQL, UI, случайности и внешнего packing solver.
-Общие модели и [CONTRACTS.md](CONTRACTS.md) не изменены.
+Общие DTO сохранены; [CONTRACTS.md](CONTRACTS.md) уточняет поведение интегрированного MVP.
 
 ## Подключение
 
@@ -23,9 +23,9 @@ strict_engine = DeterministicPackingEngine(
 
 Протокол остаётся `pack(PackingRequest) -> PackingResult`. Ядро возвращает
 `instructions=()`; существующий PackingService генерирует русские инструкции
-для основного плана и альтернатив. `create_app(settings, engine=engine)` позволяет
-интегратору подключить реализацию. Default app factory продолжает использовать
-DemoPackingEngine: переключение относится к отдельному интеграционному этапу.
+для основного плана и альтернатив. Default app factory использует
+`DeterministicPackingEngine()`. `create_app(settings, engine=engine)` сохраняет
+явную dependency injection для тестов и настройки ядра.
 
 ## Алгоритм
 
@@ -228,16 +228,15 @@ Benchmark: четыре demo-запроса, многоуровневые куб
 измеряется снаружи результата; повторы сравнивают весь результат и инварианты.
 Фактические измерения/команды текущего этапа — в AGENT_HANDOFF.md.
 
-## Предложения интегратору по контракту
+## Решения финальной интеграции по контракту
 
-Публичный API не изменён. Найдены расхождения с новыми требованиями:
+Публичные DTO не изменены. Согласованы следующие границы MVP:
 
 1. PackingOptions содержит только alternatives. Если порог нужен каждому HTTP
    запросу, согласованно добавить min_support_ratio=0.8 в domain/schema/TypeScript.
    Пока он задаётся внутренним EngineOptions при создании ядра.
-2. Строка CONTRACTS «устойчивость пока не моделируется» описывает foundation.
-   При интеграции уточнить: реализована минимальная опорная площадь, полноценной
-   механической модели нет.
+2. CONTRACTS уточнён: реализована минимальная опорная площадь 80%, полноценной
+   механической модели нет. Frontend показывает исходную серверную последовательность.
 3. Для передачи relationships/complexity отдельными полями согласовать DTO;
    сейчас доступны чистые backend helpers.
 4. Не переименовывать impossible молча: UI должен пояснять статус через issues.

@@ -38,7 +38,7 @@ export function toApiError(error: unknown): ApiError {
     : new ApiError('Не удалось связаться с сервисом. Проверьте подключение и повторите попытку.', 'NETWORK_ERROR');
 }
 
-export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function apiRequest<T>(path: string, options: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
   const abort = () => controller.abort();
   const callerSignal = options.signal;
@@ -48,7 +48,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   const timeout = globalThis.setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, REQUEST_TIMEOUT_MS);
+  }, timeoutMs);
 
   try {
     const headers = new Headers(options.headers);
@@ -74,7 +74,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
     return body as T;
   } catch (error: unknown) {
     if (callerSignal?.aborted) throw error;
-    if (timedOut) throw new ApiError('Сервис не ответил за 15 секунд. Попробуйте ещё раз.', 'TIMEOUT');
+    if (timedOut) throw new ApiError(`Сервис не ответил за ${timeoutMs / 1000} секунд. Попробуйте уменьшить заказ и повторить расчёт.`, 'TIMEOUT');
     throw toApiError(error);
   } finally {
     globalThis.clearTimeout(timeout);

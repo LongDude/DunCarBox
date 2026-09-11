@@ -10,7 +10,7 @@ export const packingApi = {
     checkedResponse(apiRequest<PackingRequest>(`/demo/scenarios/${encodeURIComponent(id)}`, { signal }), responseGuards.request),
   pack: async (request: PackingRequest, signal?: AbortSignal) => {
     assertValid(validateRequest(request));
-    return checkedResponse(apiRequest<PackingResult>('/pack', { method: 'POST', body: JSON.stringify(request), signal }), responseGuards.result);
+    return checkedResponse(apiRequest<PackingResult>('/pack', { method: 'POST', body: JSON.stringify(request), signal }, 120_000), responseGuards.result);
   },
 };
 

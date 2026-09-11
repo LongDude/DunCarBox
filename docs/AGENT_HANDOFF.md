@@ -8,17 +8,32 @@
 - Сервис генерации русских инструкций из placements.
 - React/TypeScript/Vite skeleton и типизированный клиент API.
 - Docker/Compose/env/README, архитектура и задания следующим агентам.
+- Ядро `DeterministicPackingEngine` (`candidate-packing-v1`) реализовано в
+  `backend/app/packing/`: целочисленная геометрия, уникальные повороты, опора,
+  до 12 deterministic starts, выбор нескольких коробок с учётом stock, scoring,
+  причины частичной упаковки, distinct alternatives и независимый валидатор.
+- Внутренние helpers relationships/complexity и EngineOptions, pytest suite
+  `backend/tests/packing/`, benchmark `python -m app.packing.benchmark`.
+  Подробности и предложения по контракту: [PACKING_ENGINE.md](PACKING_ENGINE.md).
 
 ## In progress
 
-- Нет незавершённых изменений текущего этапа. Переход на PostgreSQL завершён;
-  реализации packing engine и полноценного 3D/UX ожидают следующего этапа.
+- Реализация packing engine завершена. Подключение к default app factory и
+  полноценный 3D/UX остаются отдельными этапами по согласованному распределению.
 
 ## Known issues
 
-- Настоящий packing engine ещё не реализован по границе текущего задания.
-  Произвольный валидный запрос получает 503 ENGINE_NOT_IMPLEMENTED.
-- Полноценный 3D/UX, формы, альтернативные планы и алгоритм — следующий этап.
+- Default app factory пока выбирает fixture stub, поэтому произвольный HTTP
+  запрос всё ещё получает 503 ENGINE_NOT_IMPLEMENTED. Реальное ядро готово;
+  интегратору передать `engine=DeterministicPackingEngine()` в create_app.
+- Полноценный 3D/UX и формы — следующий этап. Ядро уже возвращает альтернативные
+  планы по существующим DTO; frontend должен получать инструкции через сервис.
+- Эвристика не доказывает оптимальность/полноту; большие разнородные заказы при
+  большом числе типов коробок могут быть дорогими. Опора по площади не моделирует
+  центр масс, нагрузку на товар или траекторию загрузки.
+- В API v1 отсутствует настройка опоры и metadata relationships/complexity.
+  Контракт не изменён: пока использовать EngineOptions и backend helpers;
+  минимальные предложения перечислены в PACKING_ENGINE.md.
 - Docker daemon в текущем окружении недоступен; Compose config можно проверить,
   сборку образов и запуск контейнеров необходимо проверить при работающем Docker.
 - Установка backend использует Python 3.12.13 в локальном `.cache/python`;
@@ -45,8 +60,16 @@
 ## Packing agent tasks
 
 - Владеет `backend/app/packing/**`, `backend/tests/packing/**`, `PACKING_ENGINE.md`.
-- Реализовать `pack(PackingRequest) -> PackingResult`, без HTTP/ORM/GUI.
-- Обеспечить геометрию, ориентации, вес, остатки, детерминизм, причины и метрики.
+- Выполнено: `pack(PackingRequest) -> PackingResult`, без HTTP/ORM/GUI.
+- Выполнено: геометрия, ориентации, вес, stock, опора, детерминизм, причины и метрики.
+- Defaults EngineOptions: support=4/5, max_candidate_points=128, max_strategies=12,
+  max_fill_passes=3, max_alternatives=3. Нестандартные значения отражаются в
+  algorithm_version. HTTP PackingOptions по-прежнему содержит только alternatives.
+- Главный score: unpacked count, отрицательный packed volume, box count,
+  empty volume, complexity, stock tie-break, signature. Альтернативы той же
+  полноты сортируются по контрактному порядку и не повторяют одинаковую геометрию.
+- Инструкции ядра пустые по контракту; placements пронумерованы снизу вверх.
+  PackingService проверен с реальным ядром, включая совпадение инструкций/DTO.
 - Общие модели и API не менять без интегратора. См. PACKING_ENGINE.md и TASKS.md.
 
 ## Frontend agent tasks
@@ -61,10 +84,43 @@
 
 - После отдельной команды пользователя прочитать актуальный репозиторий и этот файл.
 - Подключить движок в app factory, проверить frontend↔API и реальные сценарии.
+- Использовать `from app.packing import DeterministicPackingEngine, EngineOptions`.
+  Fixture stub и demo JSON сохранены; тесты будущего HTTP-режима не должны требовать
+  побайтного совпадения реальных размещений с authored fixtures.
+- Согласовать предложения PACKING_ENGINE.md: HTTP min_support_ratio, уточнение
+  описания опоры в CONTRACTS, необязательные relationships/complexity DTO.
+  Статус impossible сохранять; эвристическую неудачу объяснять через issues.
 - Повторить тесты, frontend build и Docker smoke; review геометрии и инструкций.
 - Сохранять working demo, обновить README и этот handoff.
 
 ## Verification
+
+### Packing engine, 2026-09-11
+
+- Текущее окружение Windows имеет Python 3.11.0; Python 3.12 и `.venv` из
+  предыдущего этапа здесь отсутствуют. Код совместим с 3.11 и не добавляет
+  runtime-зависимостей. Повторный запуск на целевом Python 3.12 — у интегратора.
+- Из backend: `python -m pytest tests/packing tests/test_demo_fixtures.py -q`:
+  **262 passed** (241 тест ядра и 21 существующий fixture-тест), около 0.4 с.
+  Проверены отдельные границы/AABB/опора union, пороги веса, повороты, stock,
+  реальные demo-запросы, count/volume/box scoring, альтернативы и configurable support.
+- Дополнительно в этом suite: 48 смешанных заказов с фиксированными seed,
+  voxel oracle для геометрии, support dependencies, параллельные вызовы,
+  изоляция мутаций и полное совпадение JSON между разными PYTHONHASHSEED.
+- `ruff check backend/app backend/tests`, форматирование новых модулей/тестов
+  и `git diff --check` успешны. Ruff установлен только в игнорируемый
+  `.cache/packing-tools`; зависимости проекта и lock-файл не менялись.
+- `python -m app.packing.benchmark --repeat 2 --stress`: все 10 сценариев
+  проходят независимую валидацию и полное сравнение повторных результатов.
+  Медианы на этой машине: 24 mixed — 76 мс (24/24, одна коробка, 79.17%);
+  64 cubes — 29 мс (64/64, одна, 100%); 216 cubes — 469 мс (216/216, одна, 100%);
+  120 mixed — 1840 мс (120/120, две, 29.80%). Это примеры, не SLA.
+- Существующие HTTP/schema tests пытались запуститься, но 27 проверок не прошли
+  setup из-за отсутствующего PostgreSQL (connection timeout). HTTP/storage suite
+  целиком не подтверждён в этом окружении; база не подменялась. Ядро, доменные
+  DTO и PackingService проверены без базы. Factory/API/storage/frontend не менялись.
+
+### Foundation (исторические проверки предыдущего окружения)
 
 - Python 3.12.13, `uv sync --frozen --offline`: зависимости воспроизводимо
   устанавливаются из lock-файла. `pytest -q`: **72 passed на PostgreSQL 17.11**.

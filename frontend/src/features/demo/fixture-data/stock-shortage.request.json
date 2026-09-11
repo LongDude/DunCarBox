@@ -1,0 +1,38 @@
+{
+  "boxes": [
+    {
+      "id": "box-m",
+      "name": "Коробка M",
+      "length": 400,
+      "width": 300,
+      "height": 250,
+      "max_weight": 10000,
+      "available_count": 0
+    },
+    {
+      "id": "box-s",
+      "name": "Коробка S",
+      "length": 300,
+      "width": 200,
+      "height": 150,
+      "max_weight": 5000,
+      "available_count": 1
+    }
+  ],
+  "products": [
+    {
+      "id": "gift-set",
+      "name": "Подарочный набор посуды",
+      "length": 280,
+      "width": 180,
+      "height": 140,
+      "weight": 1800,
+      "quantity": 3,
+      "allow_rotation": false
+    }
+  ],
+  "options": {
+    "include_alternatives": true,
+    "max_alternatives": 3
+  }
+}

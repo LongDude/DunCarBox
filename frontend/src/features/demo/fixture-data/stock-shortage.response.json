@@ -1,0 +1,150 @@
+{
+  "status": "partial",
+  "metrics": {
+    "total_items": 3,
+    "packed_items": 1,
+    "unpacked_items": 2,
+    "boxes_used": 1,
+    "boxes_by_type": {
+      "box-s": 1
+    },
+    "total_box_volume": 9000000,
+    "used_volume": 7056000,
+    "empty_volume": 1944000,
+    "fill_ratio": 0.784,
+    "total_weight": 1800
+  },
+  "packed_boxes": [
+    {
+      "name": "Коробка S",
+      "length": 300,
+      "width": 200,
+      "height": 150,
+      "max_weight": 5000,
+      "id": "box-s:1",
+      "box_type_id": "box-s",
+      "total_weight": 1800,
+      "used_volume": 7056000,
+      "fill_ratio": 0.784,
+      "placements": [
+        {
+          "item_instance_id": "gift-set:1",
+          "product_id": "gift-set",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 280,
+            "width": 180,
+            "height": 140
+          },
+          "orientation": "LWH",
+          "step": 1
+        }
+      ],
+      "instructions": [
+        {
+          "step": 0,
+          "action": "prepare_box",
+          "box_id": "box-s:1",
+          "message": "Возьмите коробку «Коробка S» (box-s:1), внутренние размеры 300 × 200 × 150 мм. Передний левый нижний угол — начало координат.",
+          "item_instance_id": null,
+          "product_id": null,
+          "position": null,
+          "dimensions": null,
+          "orientation": null
+        },
+        {
+          "step": 1,
+          "action": "place_item",
+          "box_id": "box-s:1",
+          "message": "Возьмите «Подарочный набор посуды», единицу gift-set:1. Ориентируйте: 280 мм вправо, 180 мм вглубь, 140 мм вверх (LWH). Поместите нижний передний левый угол на 0 мм вправо, 0 мм вглубь и 0 мм от дна коробки.",
+          "item_instance_id": "gift-set:1",
+          "product_id": "gift-set",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 280,
+            "width": 180,
+            "height": 140
+          },
+          "orientation": "LWH"
+        },
+        {
+          "step": 2,
+          "action": "close_box",
+          "box_id": "box-s:1",
+          "message": "Проверьте 1 ед. товара в коробке box-s:1. Вес товаров — 1800 г из допустимых 5000 г. Закройте коробку.",
+          "item_instance_id": null,
+          "product_id": null,
+          "position": null,
+          "dimensions": null,
+          "orientation": null
+        }
+      ]
+    }
+  ],
+  "unpacked_items": [
+    {
+      "name": "Подарочный набор посуды",
+      "length": 280,
+      "width": 180,
+      "height": 140,
+      "weight": 1800,
+      "allow_rotation": false,
+      "id": "gift-set:2",
+      "product_id": "gift-set",
+      "unit_index": 2
+    },
+    {
+      "name": "Подарочный набор посуды",
+      "length": 280,
+      "width": 180,
+      "height": 140,
+      "weight": 1800,
+      "allow_rotation": false,
+      "id": "gift-set:3",
+      "product_id": "gift-set",
+      "unit_index": 3
+    }
+  ],
+  "issues": [
+    {
+      "code": "BOX_STOCK_EXHAUSTED",
+      "severity": "warning",
+      "message": "В наличии только одна коробка S, в которую помещается один набор. Коробок M на складе нет. Для двух оставшихся наборов не хватает коробок.",
+      "item_instance_ids": [
+        "gift-set:2",
+        "gift-set:3"
+      ],
+      "box_type_ids": [
+        "box-m",
+        "box-s"
+      ]
+    },
+    {
+      "code": "DEMO_STUB",
+      "severity": "info",
+      "message": "Демонстрационный фиксированный план. Алгоритм упаковки ещё не подключён; оптимальность не проверялась.",
+      "item_instance_ids": [],
+      "box_type_ids": []
+    },
+    {
+      "code": "PARTIAL_PACKING",
+      "severity": "warning",
+      "message": "Упакован 1 из 3 наборов. Два набора остаются неупакованными.",
+      "item_instance_ids": [
+        "gift-set:2",
+        "gift-set:3"
+      ],
+      "box_type_ids": []
+    }
+  ],
+  "alternatives": [],
+  "algorithm_version": "demo-stub-v1"
+}

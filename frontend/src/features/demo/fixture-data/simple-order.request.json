@@ -1,0 +1,29 @@
+{
+  "boxes": [
+    {
+      "id": "box-s",
+      "name": "Коробка S",
+      "length": 300,
+      "width": 200,
+      "height": 150,
+      "max_weight": 5000,
+      "available_count": 5
+    }
+  ],
+  "products": [
+    {
+      "id": "tea",
+      "name": "Чай, подарочная упаковка",
+      "length": 100,
+      "width": 80,
+      "height": 60,
+      "weight": 250,
+      "quantity": 2,
+      "allow_rotation": true
+    }
+  ],
+  "options": {
+    "include_alternatives": true,
+    "max_alternatives": 3
+  }
+}

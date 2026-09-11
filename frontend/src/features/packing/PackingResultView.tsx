@@ -1,0 +1,653 @@
+import { lazy, Suspense, useEffect, useState } from 'react';
+import type { PackedBox, PackingRequest, PackingResult, Product } from '../../types/packing';
+import { BoxIcon } from '../../components/BoxIcon';
+import { Loading } from '../../components/Feedback';
+import {
+  alternativeTitle,
+  dimensions,
+  downloadResult,
+  getPlacement,
+  instanceLabel,
+  instructionAt,
+  issueLabels,
+  issueMessage,
+  number,
+  orientationGuidance,
+  percent,
+  placementGuidance,
+  planSteps,
+  productFor,
+  selectPlan,
+  statusDisplay,
+  weight,
+} from './presentation';
+import type { PackingPlan } from './presentation';
+
+const PackingViewer = lazy(() => import('../../three/PackingViewer'));
+
+function Metrics({ plan }: { plan: PackingPlan }) {
+  const m = plan.metrics;
+  return (
+    <dl className="metrics-grid">
+      <div>
+        <dt>Коробок</dt>
+        <dd>
+          {m.boxes_used}
+          <small> шт.</small>
+        </dd>
+      </div>
+      <div>
+        <dt>Упаковано</dt>
+        <dd>
+          {m.packed_items}
+          <small> / {m.total_items}</small>
+        </dd>
+      </div>
+      <div className={m.unpacked_items ? 'metric-warning' : ''}>
+        <dt>Не упаковано</dt>
+        <dd>
+          {m.unpacked_items}
+          <small> шт.</small>
+        </dd>
+      </div>
+      <div title="Суммарный объём товаров / суммарный объём коробок">
+        <dt>Общее заполнение</dt>
+        <dd>{percent(m.fill_ratio)}</dd>
+      </div>
+      <div title="Вес уложенных товаров без тары">
+        <dt>Вес товаров</dt>
+        <dd>{weight(m.total_weight)}</dd>
+      </div>
+      <div title="Подготовка, размещение товаров и закрытие всех коробок">
+        <dt>Шагов</dt>
+        <dd>{planSteps(plan)}</dd>
+      </div>
+    </dl>
+  );
+}
+
+function Issues({ plan }: { plan: PackingPlan }) {
+  const issues = plan.issues.filter((issue) => issue.code !== 'DEMO_STUB');
+  return (
+    <>
+      {plan.unpacked_items.length > 0 && (
+        <section className="unpacked-panel" aria-labelledby="unpacked-title">
+          <div className="section-heading">
+            <h2 id="unpacked-title">Осталось без упаковки</h2>
+            <span className="count-badge">{plan.metrics.unpacked_items} шт.</span>
+          </div>
+          <ul className="unpacked-list">
+            {plan.unpacked_items.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>{item.name}</strong>
+                  <span>
+                    Экземпляр {item.unit_index} · {dimensions(item)} · {weight(item.weight)}
+                  </span>
+                </div>
+                <span>
+                  {plan.issues
+                    .filter((issue) => issue.item_instance_ids.includes(item.id))
+                    .map((issue) => issueLabels[issue.code])
+                    .join(' · ') || 'См. причины ниже'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {issues.length > 0 && (
+        <section className="issue-grid" aria-label="Причины и пояснения">
+          {issues.map((issue, index) => (
+            <article
+              key={`${issue.code}-${index}`}
+              className={`issue-card issue-${issue.severity}`}
+            >
+              <span aria-hidden="true">{issue.severity === 'info' ? 'i' : '!'}</span>
+              <div>
+                <h3>{issueLabels[issue.code] ?? 'Пояснение'}</h3>
+                <p>{issueMessage(issue)}</p>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+    </>
+  );
+}
+
+function InstructionDetails({ box, step }: { box: PackedBox; step: number }) {
+  const instruction = instructionAt(box, step);
+  const placement = getPlacement(box, step);
+  return (
+    <details className="technical-details" key={step}>
+      <summary>
+        {placement ? 'Точные координаты и инструкция сервера' : 'Инструкция сервера'}
+      </summary>
+      {placement && (
+        <dl>
+          <div>
+            <dt>От левой стенки (x)</dt>
+            <dd>{number(placement.position.x)} мм</dd>
+          </div>
+          <div>
+            <dt>От передней стенки (y)</dt>
+            <dd>{number(placement.position.y)} мм</dd>
+          </div>
+          <div>
+            <dt>От дна (z)</dt>
+            <dd>{number(placement.position.z)} мм</dd>
+          </div>
+          <div>
+            <dt>Размеры после поворота</dt>
+            <dd>{dimensions(placement.dimensions)}</dd>
+          </div>
+          <div>
+            <dt>Ориентация</dt>
+            <dd>{placement.orientation}</dd>
+          </div>
+        </dl>
+      )}
+      <p>{instruction?.message ?? 'Текст инструкции не получен от сервера.'}</p>
+    </details>
+  );
+}
+
+function BoxWorkspace({
+  box,
+  products,
+  onNextBox,
+  hasNextBox,
+}: {
+  box: PackedBox;
+  products: Product[];
+  onNextBox: () => void;
+  hasNextBox: boolean;
+}) {
+  const [step, setStep] = useState(0);
+  const [showAll, setShowAll] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const finalStep = box.placements.length + 1;
+  const placement = getPlacement(box, step);
+  const product = placement && productFor(placement, products);
+  const instruction = instructionAt(box, step);
+  useEffect(() => {
+    if (!playing) return;
+    const timer = window.setInterval(
+      () =>
+        setStep((previous) => {
+          if (previous >= finalStep - 1) {
+            setPlaying(false);
+            return finalStep;
+          }
+          return previous + 1;
+        }),
+      2800,
+    );
+    const pause = () => {
+      if (document.hidden) setPlaying(false);
+    };
+    document.addEventListener('visibilitychange', pause);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', pause);
+    };
+  }, [playing, finalStep]);
+
+  const go = (next: number) => {
+    setPlaying(false);
+    setShowAll(false);
+    setStep(Math.min(finalStep, Math.max(0, next)));
+  };
+  const stepLabel =
+    step === 0
+      ? 'Подготовка коробки'
+      : step === finalStep
+        ? 'Проверка и закрытие'
+        : `Шаг ${step} из ${box.placements.length}`;
+  return (
+    <div className="packing-workspace" id="packing-workspace" tabIndex={-1}>
+      <section className="scene-panel" aria-label="Схема укладки">
+        <div className="scene-heading">
+          <div>
+            <span className="eyebrow">СХЕМА УКЛАДКИ</span>
+            <h2>{box.name}</h2>
+          </div>
+          <span className="dimension-label">{dimensions(box)}</span>
+        </div>
+        <Suspense fallback={<Loading label="Загружаем 3D-сцену…" />}>
+          <PackingViewer box={box} step={step} showAll={showAll} products={products} />
+        </Suspense>
+        <div className="scene-bottom">
+          <span>
+            {showAll
+              ? 'Все товары'
+              : `Размещено ${Math.min(step, box.placements.length)} из ${box.placements.length}`}
+          </span>
+          <button
+            type="button"
+            className="text-button"
+            aria-pressed={showAll}
+            onClick={() => {
+              setPlaying(false);
+              setShowAll(!showAll);
+            }}
+          >
+            {showAll ? 'Вернуться к шагу' : 'Показать всё'}
+          </button>
+        </div>
+      </section>
+      <section className="instruction-panel" aria-label="Пошаговая инструкция">
+        <div className="instruction-top">
+          <span className="eyebrow">ПОРЯДОК УПАКОВКИ</span>
+          <span className="step-counter">
+            {step} / {finalStep}
+          </span>
+        </div>
+        <div className="progress-track" aria-hidden="true">
+          <span style={{ width: `${(step / finalStep) * 100}%` }} />
+        </div>
+        <div className="current-instruction" aria-live="polite" aria-atomic="true">
+          <span className="step-kicker">{stepLabel}</span>
+          <h2>
+            {step === 0
+              ? `Возьмите ${box.name.toLocaleLowerCase('ru-RU')}`
+              : step === finalStep
+                ? 'Проверьте содержимое'
+                : `Возьмите «${product?.name ?? placement?.product_id ?? 'товар'}»`}
+          </h2>
+          {placement && (
+            <span className="instance-label">
+              {instanceLabel(placement, products)} · 1 шт.
+              {product ? ` · ${weight(product.weight)}` : ''}
+            </span>
+          )}
+          {step === 0 && (
+            <>
+              <div className="prepare-box">
+                <BoxIcon />
+                <div>
+                  <strong>{dimensions(box)}</strong>
+                  <span>Внутренние размеры · до {weight(box.max_weight)}</span>
+                </div>
+              </div>
+              <p className="instruction-text">
+                Поставьте открытую коробку перед собой. На схеме передняя стенка обращена к вам,
+                длина идёт слева направо.
+              </p>
+              <p className="instruction-hint">
+                Первый товар появится после нажатия «Следующий шаг».
+              </p>
+            </>
+          )}
+          {placement && (
+            <>
+              <div className="instruction-block">
+                <span className="mini-step">1</span>
+                <div>
+                  <h3>Положение упаковки</h3>
+                  <p>{orientationGuidance(placement)}</p>
+                  {product && !product.allow_rotation && (
+                    <span className="rotation-note">Поворот запрещён · исходное положение</span>
+                  )}
+                </div>
+              </div>
+              <div className="instruction-block">
+                <span className="mini-step">2</span>
+                <div>
+                  <h3>Положите в коробку</h3>
+                  <p>{placementGuidance(placement, box, products)}</p>
+                </div>
+              </div>
+              <p className="instruction-hint">
+                Текущий товар выделен контуром и подписью шага на схеме.
+              </p>
+            </>
+          )}
+          {step === finalStep && (
+            <>
+              <div className="close-check">✓</div>
+              <p className="instruction-text">
+                В коробке должно быть {box.placements.length} шт. товара. Вес —{' '}
+                {weight(box.total_weight)} при лимите {weight(box.max_weight)}. Проверьте укладку и
+                закройте коробку.
+              </p>
+              <p className="instruction-hint">
+                {hasNextBox
+                  ? 'Затем перейдите к следующей коробке.'
+                  : 'Это последняя коробка выбранного плана.'}
+              </p>
+            </>
+          )}
+          {!instruction && (
+            <p className="inline-warning">
+              Сервер не передал этот шаг. Сверьте размещение и точные координаты.
+            </p>
+          )}
+        </div>
+        <InstructionDetails box={box} step={step} />
+        <div className="step-controls">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => go(step - 1)}
+            disabled={step === 0}
+          >
+            ← Назад
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => (step === finalStep && hasNextBox ? onNextBox() : go(step + 1))}
+            disabled={step === finalStep && !hasNextBox}
+          >
+            {step === finalStep
+              ? hasNextBox
+                ? 'Следующая коробка →'
+                : 'Все шаги пройдены'
+              : 'Следующий шаг →'}
+          </button>
+        </div>
+        <button
+          type="button"
+          className="play-button"
+          onClick={() => {
+            if (step === finalStep) setStep(0);
+            setShowAll(false);
+            setPlaying(!playing);
+          }}
+        >
+          {playing ? 'Ⅱ Приостановить показ' : '▷ Автопоказ шагов'}
+        </button>
+        <details className="step-list">
+          <summary>Все шаги этой коробки</summary>
+          <ol>
+            {box.instructions.map((item) => (
+              <li key={item.step}>
+                <button
+                  type="button"
+                  aria-current={step === item.step ? 'step' : undefined}
+                  onClick={() => go(item.step)}
+                >
+                  <span>{item.step < step ? '✓' : item.step}</span>
+                  {item.action === 'prepare_box'
+                    ? 'Подготовка коробки'
+                    : item.action === 'close_box'
+                      ? 'Проверка и закрытие'
+                      : (products.find((p) => p.id === item.product_id)?.name ?? item.product_id)}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </details>
+      </section>
+    </div>
+  );
+}
+
+function PrintInstructions({
+  plan,
+  request,
+  orderId,
+}: {
+  plan: PackingPlan;
+  request: PackingRequest;
+  orderId: string;
+}) {
+  return (
+    <section className="print-instructions">
+      <h1>DunCarBox · Инструкция по упаковке</h1>
+      <p>
+        Заказ {orderId} · {statusDisplay(plan.status, plan.issues).label}
+      </p>
+      <Metrics plan={plan} />
+      {plan.packed_boxes.map((box, index) => (
+        <article key={box.id}>
+          <h2>
+            Коробка {index + 1} / {plan.packed_boxes.length} · {box.name} · {box.id}
+          </h2>
+          <p>
+            {dimensions(box)} · {weight(box.total_weight)} / {weight(box.max_weight)} · заполнение{' '}
+            {percent(box.fill_ratio)}
+          </p>
+          <h3>Содержимое</h3>
+          <ul>
+            {box.placements.map((placement) => (
+              <li key={placement.item_instance_id}>
+                {productFor(placement, request.products)?.name ?? placement.product_id} ·{' '}
+                {instanceLabel(placement, request.products)} · {dimensions(placement.dimensions)}
+              </li>
+            ))}
+          </ul>
+          <h3>Шаги</h3>
+          <ol>
+            {box.instructions.map((instruction) => (
+              <li key={instruction.step}>{instruction.message}</li>
+            ))}
+          </ol>
+        </article>
+      ))}
+      {plan.unpacked_items.length > 0 && (
+        <>
+          <h2>Не упаковано</h2>
+          <ul>
+            {plan.unpacked_items.map((item) => (
+              <li key={item.id}>
+                {item.name} · экземпляр {item.unit_index}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {plan.issues.length > 0 && (
+        <>
+          <h2>Причины и пояснения</h2>
+          <ul>
+            {plan.issues.map((issue, index) => (
+              <li key={index}>
+                {issueLabels[issue.code]}: {issueMessage(issue)}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+export function PackingResultView({
+  result,
+  request,
+  orderId,
+  stale,
+  onEdit,
+}: {
+  result: PackingResult;
+  request: PackingRequest;
+  orderId: string;
+  stale: boolean;
+  onEdit: () => void;
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [boxIndex, setBoxIndex] = useState(0);
+  const plan = selectPlan(result, selectedId);
+  const box = plan.packed_boxes[boxIndex];
+  const status = statusDisplay(plan.status, plan.issues);
+  const demo =
+    result.issues.some((issue) => issue.code === 'DEMO_STUB') ||
+    result.algorithm_version.startsWith('demo-stub');
+  return (
+    <>
+      <div className="result-screen screen-only">
+        <div className="page-heading">
+          <div>
+            <span className="eyebrow">ЗАКАЗ {orderId}</span>
+            <h1>План упаковки</h1>
+            <p>Одна коробка за другой. Каждый товар на своём месте.</p>
+          </div>
+          <div className="heading-actions">
+            {box && (
+              <a className="primary-button start-packing" href="#packing-workspace">
+                К инструкции ↓
+              </a>
+            )}
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => downloadResult(orderId, request, result, selectedId)}
+            >
+              ↓ Экспорт JSON
+            </button>
+            <button type="button" className="secondary-button" onClick={() => window.print()}>
+              Печать / PDF
+            </button>
+          </div>
+        </div>
+        {stale && (
+          <div className="notice notice-warning" role="status">
+            <strong>Данные заказа изменились.</strong>
+            <span>
+              Этот план относится к предыдущему составу. Пересчитайте упаковку перед работой.
+            </span>
+            <button className="text-button" type="button" onClick={onEdit}>
+              К заказу →
+            </button>
+          </div>
+        )}
+        {demo && (
+          <div className="notice notice-demo">
+            <span className="demo-tag">ДЕМО-ПЛАН</span>
+            <span>
+              Готовый пример укладки. Для изменённого заказа потребуется расчёт на сервере.
+            </span>
+          </div>
+        )}
+        <section className="result-summary">
+          <div className="summary-status" role="status">
+            <span className={`status-badge status-${status.tone}`}>
+              <span aria-hidden="true">{status.symbol}</span>
+              {status.label}
+            </span>
+            <span className="muted">
+              {plan.metrics.packed_items} из {plan.metrics.total_items} товаров размещено
+            </span>
+          </div>
+          <Metrics plan={plan} />
+        </section>
+        {result.alternatives.length > 0 && (
+          <details className="alternatives">
+            <summary>
+              Сравнить варианты упаковки <span>+{Math.min(3, result.alternatives.length)}</span>
+            </summary>
+            <div className="alternative-grid">
+              <button
+                className={`alternative-card ${selectedId === null ? 'selected' : ''}`}
+                type="button"
+                aria-pressed={selectedId === null}
+                onClick={() => {
+                  setSelectedId(null);
+                  setBoxIndex(0);
+                }}
+              >
+                <strong>Рекомендуемый</strong>
+                <span>
+                  {result.metrics.boxes_used} коробок · {percent(result.metrics.fill_ratio)}
+                </span>
+                <small>
+                  {result.metrics.packed_items} из {result.metrics.total_items} товаров
+                </small>
+              </button>
+              {result.alternatives.slice(0, 3).map((alternative, index) => (
+                <button
+                  className={`alternative-card ${selectedId === alternative.id ? 'selected' : ''}`}
+                  type="button"
+                  key={alternative.id}
+                  aria-pressed={selectedId === alternative.id}
+                  onClick={() => {
+                    setSelectedId(alternative.id);
+                    setBoxIndex(0);
+                  }}
+                >
+                  <strong>{alternativeTitle(alternative, index)}</strong>
+                  <span>
+                    {alternative.metrics.boxes_used} коробок ·{' '}
+                    {percent(alternative.metrics.fill_ratio)}
+                  </span>
+                  <small>
+                    {statusDisplay(alternative.status, alternative.issues).label} ·{' '}
+                    {alternative.metrics.packed_items} товаров
+                  </small>
+                </button>
+              ))}
+            </div>
+          </details>
+        )}
+        {box ? (
+          <>
+            <div className="box-section-heading">
+              <h2>Выберите коробку</h2>
+              <span className="muted">
+                Коробка {boxIndex + 1} / {plan.packed_boxes.length}
+              </span>
+            </div>
+            <div className="box-selector" aria-label="Коробки плана">
+              {plan.packed_boxes.map((item, index) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  className={`box-card ${index === boxIndex ? 'selected' : ''}`}
+                  aria-pressed={index === boxIndex}
+                  onClick={() => setBoxIndex(index)}
+                >
+                  <span className="box-card-icon">
+                    <BoxIcon />
+                    <b>{String(index + 1).padStart(2, '0')}</b>
+                  </span>
+                  <span className="box-card-content">
+                    <strong>
+                      {item.name}
+                      <span>{index === boxIndex ? 'Выбрана' : `№ ${index + 1}`}</span>
+                    </strong>
+                    <span>{dimensions(item)}</span>
+                    <span className="fill-track" aria-hidden="true">
+                      <i style={{ width: `${item.fill_ratio * 100}%` }} />
+                    </span>
+                    <span>
+                      {percent(item.fill_ratio)} заполнено · {weight(item.total_weight)} /{' '}
+                      {weight(item.max_weight)}
+                    </span>
+                    <span>
+                      {item.placements.length} товаров · слоёв:{' '}
+                      {new Set(item.placements.map((p) => p.position.z)).size}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <BoxWorkspace
+              key={`${selectedId ?? 'main'}:${box.id}`}
+              box={box}
+              products={request.products}
+              hasNextBox={boxIndex < plan.packed_boxes.length - 1}
+              onNextBox={() => setBoxIndex(boxIndex + 1)}
+            />
+          </>
+        ) : (
+          <div className="empty-result">
+            <BoxIcon />
+            <h2>Для этого заказа нет плана укладки</h2>
+            <p>Проверьте причины ниже, измените товары или доступные коробки и повторите расчёт.</p>
+            <button type="button" className="primary-button" onClick={onEdit}>
+              Изменить заказ →
+            </button>
+          </div>
+        )}
+        <Issues plan={plan} />
+        <div className="result-footnote">
+          Вес указан без тары. Расчёт не списывает остатки коробок.
+        </div>
+      </div>
+      <PrintInstructions plan={plan} request={request} orderId={orderId} />
+    </>
+  );
+}

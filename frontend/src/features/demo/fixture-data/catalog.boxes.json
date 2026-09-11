@@ -1,0 +1,29 @@
+[
+  {
+    "id": "box-l",
+    "name": "Коробка L",
+    "length": 500,
+    "width": 350,
+    "height": 300,
+    "max_weight": 15000,
+    "available_count": 2
+  },
+  {
+    "id": "box-m",
+    "name": "Коробка M",
+    "length": 400,
+    "width": 300,
+    "height": 250,
+    "max_weight": 10000,
+    "available_count": 3
+  },
+  {
+    "id": "box-s",
+    "name": "Коробка S",
+    "length": 300,
+    "width": 200,
+    "height": 150,
+    "max_weight": 5000,
+    "available_count": 5
+  }
+]

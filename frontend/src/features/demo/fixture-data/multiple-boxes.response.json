@@ -1,0 +1,317 @@
+{
+  "status": "success",
+  "metrics": {
+    "total_items": 6,
+    "packed_items": 6,
+    "unpacked_items": 0,
+    "boxes_used": 2,
+    "boxes_by_type": {
+      "box-m": 2
+    },
+    "total_box_volume": 60000000,
+    "used_volume": 16710000,
+    "empty_volume": 43290000,
+    "fill_ratio": 0.2785,
+    "total_weight": 3200
+  },
+  "packed_boxes": [
+    {
+      "name": "Коробка M",
+      "length": 400,
+      "width": 300,
+      "height": 250,
+      "max_weight": 10000,
+      "id": "box-m:1",
+      "box_type_id": "box-m",
+      "total_weight": 1600,
+      "used_volume": 8355000,
+      "fill_ratio": 0.2785,
+      "placements": [
+        {
+          "item_instance_id": "kettle:1",
+          "product_id": "kettle",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 220,
+            "width": 160,
+            "height": 200
+          },
+          "orientation": "LWH",
+          "step": 1
+        },
+        {
+          "item_instance_id": "filters:1",
+          "product_id": "filters",
+          "position": {
+            "x": 220,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 80,
+            "width": 120,
+            "height": 40
+          },
+          "orientation": "WLH",
+          "step": 2
+        },
+        {
+          "item_instance_id": "thermos:1",
+          "product_id": "thermos",
+          "position": {
+            "x": 300,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 70,
+            "width": 70,
+            "height": 190
+          },
+          "orientation": "LWH",
+          "step": 3
+        }
+      ],
+      "instructions": [
+        {
+          "step": 0,
+          "action": "prepare_box",
+          "box_id": "box-m:1",
+          "message": "Возьмите коробку «Коробка M» (box-m:1), внутренние размеры 400 × 300 × 250 мм. Передний левый нижний угол — начало координат.",
+          "item_instance_id": null,
+          "product_id": null,
+          "position": null,
+          "dimensions": null,
+          "orientation": null
+        },
+        {
+          "step": 1,
+          "action": "place_item",
+          "box_id": "box-m:1",
+          "message": "Возьмите «Чайник в заводской упаковке», единицу kettle:1. Ориентируйте: 220 мм вправо, 160 мм вглубь, 200 мм вверх (LWH). Поместите нижний передний левый угол на 0 мм вправо, 0 мм вглубь и 0 мм от дна коробки.",
+          "item_instance_id": "kettle:1",
+          "product_id": "kettle",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 220,
+            "width": 160,
+            "height": 200
+          },
+          "orientation": "LWH"
+        },
+        {
+          "step": 2,
+          "action": "place_item",
+          "box_id": "box-m:1",
+          "message": "Возьмите «Набор фильтров для воды», единицу filters:1. Ориентируйте: 80 мм вправо, 120 мм вглубь, 40 мм вверх (WLH). Поместите нижний передний левый угол на 220 мм вправо, 0 мм вглубь и 0 мм от дна коробки.",
+          "item_instance_id": "filters:1",
+          "product_id": "filters",
+          "position": {
+            "x": 220,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 80,
+            "width": 120,
+            "height": 40
+          },
+          "orientation": "WLH"
+        },
+        {
+          "step": 3,
+          "action": "place_item",
+          "box_id": "box-m:1",
+          "message": "Возьмите «Термос в индивидуальной коробке», единицу thermos:1. Ориентируйте: 70 мм вправо, 70 мм вглубь, 190 мм вверх (LWH). Поместите нижний передний левый угол на 300 мм вправо, 0 мм вглубь и 0 мм от дна коробки.",
+          "item_instance_id": "thermos:1",
+          "product_id": "thermos",
+          "position": {
+            "x": 300,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 70,
+            "width": 70,
+            "height": 190
+          },
+          "orientation": "LWH"
+        },
+        {
+          "step": 4,
+          "action": "close_box",
+          "box_id": "box-m:1",
+          "message": "Проверьте 3 ед. товара в коробке box-m:1. Вес товаров — 1600 г из допустимых 10000 г. Закройте коробку.",
+          "item_instance_id": null,
+          "product_id": null,
+          "position": null,
+          "dimensions": null,
+          "orientation": null
+        }
+      ]
+    },
+    {
+      "name": "Коробка M",
+      "length": 400,
+      "width": 300,
+      "height": 250,
+      "max_weight": 10000,
+      "id": "box-m:2",
+      "box_type_id": "box-m",
+      "total_weight": 1600,
+      "used_volume": 8355000,
+      "fill_ratio": 0.2785,
+      "placements": [
+        {
+          "item_instance_id": "kettle:2",
+          "product_id": "kettle",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 220,
+            "width": 160,
+            "height": 200
+          },
+          "orientation": "LWH",
+          "step": 1
+        },
+        {
+          "item_instance_id": "filters:2",
+          "product_id": "filters",
+          "position": {
+            "x": 220,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 80,
+            "width": 120,
+            "height": 40
+          },
+          "orientation": "WLH",
+          "step": 2
+        },
+        {
+          "item_instance_id": "thermos:2",
+          "product_id": "thermos",
+          "position": {
+            "x": 300,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 70,
+            "width": 70,
+            "height": 190
+          },
+          "orientation": "LWH",
+          "step": 3
+        }
+      ],
+      "instructions": [
+        {
+          "step": 0,
+          "action": "prepare_box",
+          "box_id": "box-m:2",
+          "message": "Возьмите коробку «Коробка M» (box-m:2), внутренние размеры 400 × 300 × 250 мм. Передний левый нижний угол — начало координат.",
+          "item_instance_id": null,
+          "product_id": null,
+          "position": null,
+          "dimensions": null,
+          "orientation": null
+        },
+        {
+          "step": 1,
+          "action": "place_item",
+          "box_id": "box-m:2",
+          "message": "Возьмите «Чайник в заводской упаковке», единицу kettle:2. Ориентируйте: 220 мм вправо, 160 мм вглубь, 200 мм вверх (LWH). Поместите нижний передний левый угол на 0 мм вправо, 0 мм вглубь и 0 мм от дна коробки.",
+          "item_instance_id": "kettle:2",
+          "product_id": "kettle",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 220,
+            "width": 160,
+            "height": 200
+          },
+          "orientation": "LWH"
+        },
+        {
+          "step": 2,
+          "action": "place_item",
+          "box_id": "box-m:2",
+          "message": "Возьмите «Набор фильтров для воды», единицу filters:2. Ориентируйте: 80 мм вправо, 120 мм вглубь, 40 мм вверх (WLH). Поместите нижний передний левый угол на 220 мм вправо, 0 мм вглубь и 0 мм от дна коробки.",
+          "item_instance_id": "filters:2",
+          "product_id": "filters",
+          "position": {
+            "x": 220,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 80,
+            "width": 120,
+            "height": 40
+          },
+          "orientation": "WLH"
+        },
+        {
+          "step": 3,
+          "action": "place_item",
+          "box_id": "box-m:2",
+          "message": "Возьмите «Термос в индивидуальной коробке», единицу thermos:2. Ориентируйте: 70 мм вправо, 70 мм вглубь, 190 мм вверх (LWH). Поместите нижний передний левый угол на 300 мм вправо, 0 мм вглубь и 0 мм от дна коробки.",
+          "item_instance_id": "thermos:2",
+          "product_id": "thermos",
+          "position": {
+            "x": 300,
+            "y": 0,
+            "z": 0
+          },
+          "dimensions": {
+            "length": 70,
+            "width": 70,
+            "height": 190
+          },
+          "orientation": "LWH"
+        },
+        {
+          "step": 4,
+          "action": "close_box",
+          "box_id": "box-m:2",
+          "message": "Проверьте 3 ед. товара в коробке box-m:2. Вес товаров — 1600 г из допустимых 10000 г. Закройте коробку.",
+          "item_instance_id": null,
+          "product_id": null,
+          "position": null,
+          "dimensions": null,
+          "orientation": null
+        }
+      ]
+    }
+  ],
+  "unpacked_items": [],
+  "issues": [
+    {
+      "code": "DEMO_STUB",
+      "severity": "info",
+      "message": "Демонстрационный фиксированный план. Алгоритм упаковки ещё не подключён; оптимальность не проверялась.",
+      "item_instance_ids": [],
+      "box_type_ids": []
+    }
+  ],
+  "alternatives": [],
+  "algorithm_version": "demo-stub-v1"
+}

@@ -45,7 +45,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   callerSignal?.addEventListener('abort', abort, { once: true });
   if (callerSignal?.aborted) abort();
   let timedOut = false;
-  const timeout = window.setTimeout(() => {
+  const timeout = globalThis.setTimeout(() => {
     timedOut = true;
     controller.abort();
   }, REQUEST_TIMEOUT_MS);
@@ -68,7 +68,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
       }
       throw new ApiError('Сервис временно недоступен. Попробуйте ещё раз.', 'HTTP_ERROR', response.status);
     }
-    if (body === null) {
+    if (body === null || typeof body !== 'object') {
       throw new ApiError('Сервис вернул некорректный ответ. Попробуйте ещё раз.', 'INVALID_RESPONSE', response.status);
     }
     return body as T;
@@ -77,7 +77,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
     if (timedOut) throw new ApiError('Сервис не ответил за 15 секунд. Попробуйте ещё раз.', 'TIMEOUT');
     throw toApiError(error);
   } finally {
-    window.clearTimeout(timeout);
+    globalThis.clearTimeout(timeout);
     callerSignal?.removeEventListener('abort', abort);
   }
 }

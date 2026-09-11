@@ -1,8 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { FoundationPage } from './pages/FoundationPage';
+import { PackingApp } from './pages/PackingApp';
 import './styles.css';
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode><FoundationPage /></StrictMode>,
+  <StrictMode><PackingApp /></StrictMode>,
 );

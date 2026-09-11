@@ -1,0 +1,38 @@
+{
+  "boxes": [
+    {
+      "id": "box-m",
+      "name": "Коробка M",
+      "length": 400,
+      "width": 300,
+      "height": 250,
+      "max_weight": 10000,
+      "available_count": 3
+    },
+    {
+      "id": "box-s",
+      "name": "Коробка S",
+      "length": 300,
+      "width": 200,
+      "height": 150,
+      "max_weight": 5000,
+      "available_count": 5
+    }
+  ],
+  "products": [
+    {
+      "id": "poster",
+      "name": "Постер в прямоугольном тубусе",
+      "length": 650,
+      "width": 80,
+      "height": 80,
+      "weight": 700,
+      "quantity": 1,
+      "allow_rotation": true
+    }
+  ],
+  "options": {
+    "include_alternatives": true,
+    "max_alternatives": 3
+  }
+}

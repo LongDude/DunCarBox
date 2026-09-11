@@ -37,3 +37,7 @@ Thumbs.db
 .vscode/
 .tmp/
 .docker-local/
+
+# Infra
+infra/**/*.conf
+!infra/**/*.conf.example

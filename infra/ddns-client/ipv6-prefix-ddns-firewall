@@ -1,0 +1,287 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+
+CONFIG_FILE="${1:?Usage: $0 <config.conf> <pending-state.json>}"
+STATE_FILE="${2:?Usage: $0 <config.conf> <pending-state.json>}"
+
+HOST_CHAIN="IPV6-DDNS-HOST"
+DOCKER_CHAIN="IPV6-DDNS-DOCKER"
+
+
+log() {
+    logger -t ipv6-prefix-ddns-firewall -- "$*"
+    echo "$*"
+}
+
+
+fail() {
+    log "ERROR: $*"
+    exit 1
+}
+
+delete_all_jumps() {
+    local parent="$1"
+    local target="$2"
+    local rule_num
+
+    # Delete by line number instead of ip6tables -C.
+    # This also removes stale jumps referring to an old INTERFACE.
+    while :; do
+        rule_num="$(
+            ip6tables -L "$parent" \
+                --line-numbers \
+                -n \
+            | awk -v target="$target" '
+                $2 == target {
+                    print $1
+                    exit
+                }
+            '
+        )"
+
+        [[ -n "$rule_num" ]] || break
+
+        ip6tables -D "$parent" "$rule_num"
+    done
+}
+
+
+# ------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------
+
+[[ -r "$CONFIG_FILE" ]] || fail "cannot read config file: $CONFIG_FILE"
+[[ -r "$STATE_FILE" ]] || fail "cannot read state file: $STATE_FILE"
+
+
+get_config_value() {
+    local key="$1"
+
+    awk -F= \
+        -v wanted="$key" '
+        /^[[:space:]]*#/ {
+            next
+        }
+
+        {
+            key = $1
+            sub(/^[[:space:]]+/, "", key)
+            sub(/[[:space:]]+$/, "", key)
+
+            if (key == wanted) {
+                value = substr($0, index($0, "=") + 1)
+
+                sub(/^[[:space:]]+/, "", value)
+                sub(/[[:space:]]+$/, "", value)
+
+                print value
+                exit
+            }
+        }
+    ' "$CONFIG_FILE"
+}
+
+
+INTERFACE="$(get_config_value "INTERFACE")"
+
+[[ -n "$INTERFACE" ]] || fail "INTERFACE is missing in $CONFIG_FILE"
+
+
+if ! ip link show dev "$INTERFACE" >/dev/null 2>&1; then
+    fail "interface does not exist: $INTERFACE"
+fi
+
+
+# ------------------------------------------------------------
+# Obtain managed IPv6 addresses
+# ------------------------------------------------------------
+
+#
+# At the moment firewall policy assigns semantic meaning to:
+#
+#   suffix ::10 -> application
+#   suffix ::20 -> SSH
+#
+# DNS hostname itself is deliberately irrelevant here.
+#
+
+get_record_by_suffix() {
+    local suffix="$1"
+
+    jq -r \
+        --arg suffix "$suffix" '
+        .records
+        | to_entries[]
+        | select(.value.suffix == $suffix)
+        | .value.address
+    ' "$STATE_FILE" \
+        | head -n1
+}
+
+
+APP_IP="$(get_record_by_suffix "10")"
+SSH_IP="$(get_record_by_suffix "20")"
+
+
+[[ -n "$APP_IP" && "$APP_IP" != "null" ]] \
+    || fail "IPv6 with suffix ::10 not found in state"
+
+[[ -n "$SSH_IP" && "$SSH_IP" != "null" ]] \
+    || fail "IPv6 with suffix ::20 not found in state"
+
+
+log "Applying firewall interface=$INTERFACE APP=$APP_IP SSH=$SSH_IP"
+
+
+# ============================================================
+# HOST INPUT
+# ============================================================
+
+ip6tables -N "$HOST_CHAIN" 2>/dev/null || true
+ip6tables -F "$HOST_CHAIN"
+
+
+#
+# Remove stale jumps that may reference a previous interface.
+#
+# This matters when the service is migrated or INTERFACE is changed.
+#
+
+delete_all_jumps INPUT "$HOST_CHAIN"
+
+#
+# Install the current-interface jump before UFW processing.
+#
+
+ip6tables -I INPUT 1 \
+    -i "$INTERFACE" \
+    -j "$HOST_CHAIN"
+
+
+#
+# Existing connections.
+#
+
+ip6tables -A "$HOST_CHAIN" \
+    -m conntrack \
+    --ctstate ESTABLISHED,RELATED \
+    -j RETURN
+
+
+# APP address owns HTTP/HTTPS.
+#
+# This also covers Docker's IPv6 userland-proxy path, where the
+# connection may terminate in INPUT instead of being forwarded
+# through DOCKER-USER.
+ip6tables -A "$HOST_CHAIN" \
+    -d "$APP_IP" \
+    -p tcp \
+    -m multiport \
+    --dports 80,443 \
+    -m conntrack \
+    --ctstate NEW \
+    -j ACCEPT
+
+# SSH address owns TCP/22.
+ip6tables -A "$HOST_CHAIN" \
+    -d "$SSH_IP" \
+    -p tcp \
+    --dport 22 \
+    -m conntrack \
+    --ctstate NEW \
+    -j ACCEPT
+
+# No other new TCP service is allowed on either managed address.
+ip6tables -A "$HOST_CHAIN" \
+    -d "$APP_IP" \
+    -p tcp \
+    -m conntrack \
+    --ctstate NEW \
+    -j DROP
+
+ip6tables -A "$HOST_CHAIN" \
+    -d "$SSH_IP" \
+    -p tcp \
+    -m conntrack \
+    --ctstate NEW \
+    -j DROP
+
+#
+# Everything else continues into the normal UFW INPUT rules.
+#
+
+ip6tables -A "$HOST_CHAIN" \
+    -j RETURN
+
+
+# ============================================================
+# DOCKER / k3d
+# ============================================================
+
+if ! ip6tables -nL DOCKER-USER >/dev/null 2>&1; then
+    fail "DOCKER-USER IPv6 chain not found; refusing insecure Docker policy"
+fi
+
+ip6tables -N "$DOCKER_CHAIN" 2>/dev/null || true
+ip6tables -F "$DOCKER_CHAIN"
+
+delete_all_jumps DOCKER-USER "$DOCKER_CHAIN"
+
+ip6tables -I DOCKER-USER 1 \
+    -i "$INTERFACE" \
+    -j "$DOCKER_CHAIN"
+
+# Preserve already accepted flows and their replies.
+ip6tables -A "$DOCKER_CHAIN" \
+    -m conntrack \
+    --ctstate ESTABLISHED,RELATED \
+    -j RETURN
+
+ip6tables -A "$DOCKER_CHAIN" \
+    -m conntrack \
+    --ctstate INVALID \
+    -j DROP
+
+#
+# DOCKER-USER is evaluated after Docker DNAT.
+# Therefore -d "$APP_IP" cannot be used to match the address
+# originally contacted by the client.
+#
+# Allow only the public k3d ingress endpoints:
+#   APP_IP:80
+#   APP_IP:443
+#
+ip6tables -A "$DOCKER_CHAIN" \
+    -p tcp \
+    -m conntrack \
+    --ctstate NEW \
+    --ctorigdst "$APP_IP" \
+    --ctorigdstport 80 \
+    -j RETURN
+
+ip6tables -A "$DOCKER_CHAIN" \
+    -p tcp \
+    -m conntrack \
+    --ctstate NEW \
+    --ctorigdst "$APP_IP" \
+    --ctorigdstport 443 \
+    -j RETURN
+
+#
+# Fail closed for every other NEW packet forwarded from the WAN
+# interface. This host is not expected to be an IPv6 router for
+# arbitrary external traffic.
+#
+ip6tables -A "$DOCKER_CHAIN" \
+    -m conntrack \
+    --ctstate NEW \
+    -j DROP
+
+# Non-NEW traffic not matched above continues through Docker rules.
+ip6tables -A "$DOCKER_CHAIN" \
+    -j RETURN
+
+
+log "Strict Docker IPv6 firewall updated"
+log "Firewall successfully updated"

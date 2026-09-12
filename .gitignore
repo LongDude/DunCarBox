@@ -42,3 +42,8 @@ Thumbs.db
 infra/**/*.conf
 !infra/**/*.conf.example
 .terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars.json
+*.auto.tfvars

@@ -19,5 +19,6 @@ provider "k3d" {
 }
 
 provider "kustomization" {
-  kuberconfig_path = "~/.kube/config"
+  kubeconfig_path = pathexpand(var.kubeconfig_path)
+  context         = "k3d-${var.cluster_name}"
 }

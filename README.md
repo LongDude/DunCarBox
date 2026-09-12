@@ -20,6 +20,14 @@ docker compose up --build
 
 Каталог коробок хранится только в PostgreSQL. Compose ожидает готовности базы перед запуском backend. Данные находятся в volume `postgres_data` и сохраняются после `docker compose down`. `docker compose down -v` удаляет базу. Переменные `POSTGRES_*` создают пользователя и базу при первой инициализации volume; изменение `.env` не меняет пароль уже созданной роли.
 
+## Запуск на сервере: OpenTofu + k3d
+
+Серверное развёртывание описано в [infra/k3d-infra/README.md](infra/k3d-infra/README.md).
+Kustomize overlay объединяет конфигурации из `backend/.tofu`, `frontend/.tofu`
+и `infra/postgres/.tofu` в namespace `duncarbox`. OpenTofu применяет их в уже
+созданный k3d-кластер; образы приложения загружаются в его registry.
+Docker Compose остаётся способом запуска для разработки.
+
 ## Локальная разработка
 
 Нужны Python 3.12+, [uv](https://docs.astral.sh/uv/getting-started/installation/), Node.js 24 с npm и работающий PostgreSQL 17. Из корня репозитория можно запустить только базу в Docker:

@@ -31,10 +31,19 @@ docker compose up --build
 
 ## Запуск на сервере: OpenTofu + k3d
 
+Основные сценарии доступны через `make help`: `make init`, `make ssl-issue`,
+`make ddns-install`, `make images`, `make deploy` и `make check`.
+Backend и frontend имеют независимые автоматически сохраняемые теги.
+Подробная инструкция — [infra/OPERATIONS.md](infra/OPERATIONS.md).
+
 Серверное развёртывание описано в [infra/k3d-infra/README.md](infra/k3d-infra/README.md).
 Kustomize overlay объединяет конфигурации из `backend/.tofu`, `frontend/.tofu`
 и `infra/postgres/.tofu` в namespace `duncarbox`. OpenTofu применяет их в уже
 созданный k3d-кластер; образы приложения загружаются в его registry.
+Frontend доступен по `https://app.nikaeru.com/`: Traefik завершает TLS и
+перенаправляет HTTP на HTTPS, cert-manager выпускает и продлевает сертификаты
+Let’s Encrypt. Перед развёртыванием установите cert-manager и проверьте DNS
+по [инструкции HTTPS](infra/k3d-infra/README.md#https-и-сертификаты).
 Docker Compose остаётся способом запуска для разработки.
 
 ## Локальная разработка

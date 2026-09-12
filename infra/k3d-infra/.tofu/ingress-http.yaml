@@ -1,16 +1,12 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: duncarbox
+  name: duncarbox-http
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: duncarbox-redirect-https@kubernetescrd
 spec:
   ingressClassName: traefik
-  tls:
-    - hosts:
-        - app.example.ru
-      secretName: duncarbox-tls
   rules:
     - host: app.example.ru
       http:

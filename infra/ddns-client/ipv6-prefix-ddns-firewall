@@ -7,6 +7,7 @@ STATE_FILE="${2:?Usage: $0 <config.conf> <pending-state.json>}"
 
 HOST_CHAIN="IPV6-DDNS-HOST"
 DOCKER_CHAIN="IPV6-DDNS-DOCKER"
+ALLOW_CHAIN="IPV6-DDNS-ALLOW"
 
 
 log() {
@@ -133,6 +134,20 @@ SSH_IP="$(get_record_by_suffix "20")"
 
 log "Applying firewall interface=$INTERFACE APP=$APP_IP SSH=$SSH_IP"
 
+# UFW remains the host policy authority. Add dynamic service exceptions after
+# its user rules so explicit UFW denies take precedence over these allows.
+ip6tables -nL ufw6-user-input >/dev/null 2>&1 \
+    || fail "active UFW with IPv6 support is required (ufw6-user-input missing)"
+ip6tables -N "$ALLOW_CHAIN" 2>/dev/null || true
+ip6tables -F "$ALLOW_CHAIN"
+ip6tables -A "$ALLOW_CHAIN" -i "$INTERFACE" -d "$APP_IP" \
+    -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j ACCEPT
+ip6tables -A "$ALLOW_CHAIN" -i "$INTERFACE" -d "$SSH_IP" \
+    -p tcp --dport 42 -m conntrack --ctstate NEW -j ACCEPT
+ip6tables -A "$ALLOW_CHAIN" -j RETURN
+delete_all_jumps ufw6-user-input "$ALLOW_CHAIN"
+ip6tables -A ufw6-user-input -j "$ALLOW_CHAIN"
+
 
 # ============================================================
 # HOST INPUT
@@ -181,16 +196,16 @@ ip6tables -A "$HOST_CHAIN" \
     --dports 80,443 \
     -m conntrack \
     --ctstate NEW \
-    -j ACCEPT
+    -j RETURN
 
-# SSH address owns TCP/22.
+# SSH address owns TCP/42; sshd must listen on this port separately.
 ip6tables -A "$HOST_CHAIN" \
     -d "$SSH_IP" \
     -p tcp \
-    --dport 22 \
+    --dport 42 \
     -m conntrack \
     --ctstate NEW \
-    -j ACCEPT
+    -j RETURN
 
 # No other new TCP service is allowed on either managed address.
 ip6tables -A "$HOST_CHAIN" \
@@ -219,16 +234,20 @@ ip6tables -A "$HOST_CHAIN" \
 # DOCKER / k3d
 # ============================================================
 
-if ! ip6tables -nL DOCKER-USER >/dev/null 2>&1; then
-    fail "DOCKER-USER IPv6 chain not found; refusing insecure Docker policy"
-fi
-
 ip6tables -N "$DOCKER_CHAIN" 2>/dev/null || true
 ip6tables -F "$DOCKER_CHAIN"
 
-delete_all_jumps DOCKER-USER "$DOCKER_CHAIN"
+# IPv4-only Docker bridges use the IPv6 userland proxy (INPUT) and may have
+# no IPv6 DOCKER-USER. Keep the forwarding guard in FORWARD in that case.
+# Neither branch changes UFW's default forwarding policy.
+delete_all_jumps FORWARD "$DOCKER_CHAIN"
+DOCKER_PARENT=FORWARD
+if ip6tables -nL DOCKER-USER >/dev/null 2>&1; then
+    delete_all_jumps DOCKER-USER "$DOCKER_CHAIN"
+    DOCKER_PARENT=DOCKER-USER
+fi
 
-ip6tables -I DOCKER-USER 1 \
+ip6tables -I "$DOCKER_PARENT" 1 \
     -i "$INTERFACE" \
     -j "$DOCKER_CHAIN"
 

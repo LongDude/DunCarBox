@@ -9,6 +9,8 @@ resources:
   - ../../../frontend/.tofu
   - ../../postgres/.tofu
   - ingress.yaml
+  - ingress-http.yaml
+  - redirect-https.yaml
 
 patches:
   - target:

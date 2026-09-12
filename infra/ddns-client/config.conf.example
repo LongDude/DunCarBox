@@ -15,11 +15,18 @@ RETRY_DELAY=5
 COOLDOWN=900
 RESYNC_INTERVAL=900
 
+# Route only managed source addresses ::10 and ::20 through INTERFACE, not HAPP.
+# Reserves IPv6 routing table 106, protocol 242 and priorities 100/101.
+DIRECT_ROUTING=true
+
 # Не используется, пока firewall обновлять не требуется.
 # FIREWALL_HOOK=/usr/local/sbin/ipv6-prefix-ddns-firewall
 FIREWALL_HOOK=
 
 # RECORD=<domain-within-zone>,<hex IPv6 suffix>,<proxied>
+# Разные DNS-имена могут использовать один суффикс с любыми значениями proxied.
+# RECORD=app-proxy,10,true
+# RECORD=ssh-proxy,20,true
 
 RECORD=app,10,false
 RECORD=ssh,20,false

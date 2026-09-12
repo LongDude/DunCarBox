@@ -38,6 +38,10 @@ spec:
             - configMapRef:
                 name: backend-config
           env:
+            # The backend is a ClusterIP service behind frontend nginx.
+            # Trust forwarded headers from cluster proxies so redirects use HTTPS.
+            - name: FORWARDED_ALLOW_IPS
+              value: "*"
             - name: PGUSER
               valueFrom:
                 secretKeyRef:

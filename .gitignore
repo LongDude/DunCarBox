@@ -47,3 +47,9 @@ infra/**/*.conf
 *.tfplan
 *.tfvars.json
 *.auto.tfvars
+backend/.tofu/image-tag
+frontend/.tofu/image-tag
+backend/.tofu/image-built.json
+frontend/.tofu/image-built.json
+.operations.lock
+infra/k3d-infra/deploy.tfplan.meta.json

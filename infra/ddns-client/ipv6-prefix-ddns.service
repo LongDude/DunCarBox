@@ -1,6 +1,6 @@
 [Unit]
 Description=Dynamic IPv6 prefix and Cloudflare DDNS synchronizer
-After=NetworkManager.service network-online.target docker.service
+After=NetworkManager.service network-online.target docker.service ufw.service
 Wants=network-online.target docker.service
 
 [Service]

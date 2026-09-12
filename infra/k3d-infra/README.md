@@ -10,14 +10,23 @@ Kustomize и применяется OpenTofu в namespace `duncarbox`.
 - `../../backend/.tofu/` — Deployment, Service и ConfigMap backend.
 - `../../frontend/.tofu/` — Deployment и Service nginx с собранным frontend.
 - `../postgres/.tofu/` — StatefulSet PostgreSQL 17, Service `db` и PVC на 10 GiB.
+- `tls.tf` — cert-manager Issuer и Certificate с автоматическим продлением.
 - `kustomization.tf` — HCL overlay: адреса образов, тег релиза, Secret с реквизитами
   БД и применение ресурсов в порядке `ids_prio` провайдера.
 
-Маршрут запросов: порт 80 сервера → Traefik → `frontend:80` → nginx →
+Маршрут запросов: порт 443 сервера → Traefik (TLS) → `frontend:80` → nginx →
 `backend:8000` для `/api/`. Backend подключается к `db:5432`. Сервисы используют
 ClusterIP; отдельные порты backend и PostgreSQL на хосте не публикуются.
-Ingress принимает любой HTTP Host. Домен можно указать в `.tofu/ingress.yaml`;
-TLS и сертификаты в этой конфигурации не настроены.
+Ingress обслуживает `https://app.nikaeru.com/`; hostname задаётся переменной
+`ingress_host` в `terraform.tfvars`. Дополнительное имя для Cloudflare Proxy
+задаётся `proxy_ingress_host` (в текущем примере `app-proxy.nikaeru.com`);
+оба имени входят в правила Ingress и SAN сертификата. HTTP перенаправляется на HTTPS.
+Запросы `/api/` идут по тому же HTTPS origin; nginx сохраняет
+`X-Forwarded-Proto`, полученный от Traefik. TLS завершается на Ingress,
+внутрикластерные соединения и health probes используют HTTP.
+Uvicorn доверяет forwarded headers внутри кластера (`FORWARDED_ALLOW_IPS=*`),
+поэтому генерируемые backend redirects также сохраняют HTTPS. Backend должен
+оставаться внутренним ClusterIP Service, доступным только доверенным клиентам.
 
 ## IPv4/IPv6, HAPP и UFW
 
@@ -61,90 +70,182 @@ ss -lnt6
 
 ## Запуск
 
-Нужны Docker Engine, OpenTofu >= 1.8 и kubectl. При запуске с нуля сначала
-создайте кластер и registry отдельным шагом ниже, затем загрузите образы и
-примените приложение. k3d также устанавливает Traefik и StorageClass `local-path`.
-Имя контекста вычисляется из `cluster_name`; путь к kubeconfig задаётся через
-`kubeconfig_path` (по умолчанию `~/.kube/config`).
+Основные сценарии автоматизированы в корневом Makefile.
+Полная инструкция: [infra/OPERATIONS.md](../OPERATIONS.md).
 
-Все команды ниже выполняются из корня репозитория в Bash.
+```bash
+make help
+make init
+```
 
-1. Инициализируйте провайдеры и задайте уникальный тег релиза. Пароль передаётся
-   через окружение, без записи в отслеживаемые файлы:
+Перед первым запуском проверьте `terraform.tfvars` и DNS-записи домена.
+`init` подготавливает провайдеры и реквизиты, создаёт кластер/registry,
+собирает и публикует образы с независимыми тегами, устанавливает cert-manager,
+готовит Cloudflare Secret для DNS-01 и развёртывает приложение.
+Уже заданный пароль PostgreSQL сохраняется; отсутствующий запрашивается
+скрытым вводом и записывается в локальный игнорируемый tfvars с правами 0600.
+
+Кластер создаётся отдельным targeted apply до общего плана: провайдер
+Kustomization требует существующий kubeconfig. Для выполнения по шагам:
+
+```bash
+make cluster-init
+make images
+make ssl-install
+make ssl-token
+make plan
+make apply
+make ssl-check
+make check
+```
+
+Backend ждёт PostgreSQL, frontend ждёт успешного ответа backend health через
+init container. `apply` ожидает готовности Deployment и StatefulSet, после
+него Makefile проверяет rollout обоих компонентов. Выпуск TLS-сертификата
+проверяется отдельно через `ssl-check`.
+
+Для DDNS используйте `make ddns-install`, подготовив его `config.conf`.
+SSH-подключения в проверках временно пропускаются; будущий порт — 42.
+
+## HTTPS и сертификаты
+
+По умолчанию `manage_certificate=true`: OpenTofu создаёт namespaced Issuer
+Let’s Encrypt и Certificate `duncarbox-tls`. cert-manager выпускает сертификат
+для `ingress_host`, сохраняет ключ и цепочку в Secret `tls_secret_name` и
+автоматически продлевает их. Traefik подхватывает обновлённый Secret.
+Ключ сертификата, ключ ACME-аккаунта и Cloudflare token не проходят через OpenTofu state.
+По умолчанию используется DNS-01 через Cloudflare (`acme_solver="cloudflare"`):
+cert-manager создаёт временную TXT-запись `_acme-challenge.app.nikaeru.com`.
+Это работает и с IPv6-only origin при IPv4-only pod network; HTTP self-check
+из такого pod не сможет подключиться к origin, имеющему только AAAA.
+
+### Подготовка DNS и cert-manager
+
+1. DNS `app.nikaeru.com` должен указывать на этот сервер. Для DDNS используйте
+   `RECORD=app,10,false` в зоне `nikaeru.com` (DNS-only). Все опубликованные
+   A/AAAA должны вести на доступный сервер; удалите устаревшие записи.
+   Порт 80 обслуживает перенаправление, порт 443 — HTTPS.
+   При IPv6-only origin проверяйте доступ из внешней IPv6-сети. DNS-01
+   требует исходящего доступа cert-manager к Cloudflare API, ACME API и DNS.
+   Сам origin для DNS-01 проверки не обязан быть доступен извне.
+2. После создания кластера, **до общего OpenTofu plan/apply**, установите
+   cert-manager один раз (если он уже установлен, используйте имеющуюся
+   установку):
 
    ```bash
-   tofu -chdir=infra/k3d-infra init
-   export TF_VAR_image_tag="$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
-   read -rsp 'PostgreSQL password: ' TF_VAR_postgres_password
+   kubectl --context k3d-duncarbox apply -f \
+     https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
+   kubectl --context k3d-duncarbox -n cert-manager rollout status \
+     deployment/cert-manager --timeout=180s
+   kubectl --context k3d-duncarbox -n cert-manager rollout status \
+     deployment/cert-manager-cainjector --timeout=180s
+   kubectl --context k3d-duncarbox -n cert-manager rollout status \
+     deployment/cert-manager-webhook --timeout=180s
+   ```
+
+   cert-manager — отдельный кластерный компонент, вне state приложения.
+   Установка CRD нужна до применения `tls.tf`. Если webhook ещё не готов
+   принимать запросы, дождитесь его готовности и повторите план.
+   Если установлен `cmctl`, проверка: `cmctl --context k3d-duncarbox check api --wait=2m`.
+   См. [официальную установку cert-manager](https://cert-manager.io/docs/installation/kubectl/).
+3. Для DNS-01 создайте Cloudflare API Token с правами `Zone:DNS:Edit` и
+   `Zone:Zone:Read`, ограниченный зоной `nikaeru.com`. Сохраните его в Secret
+   `cloudflare-api-token` (ключ `api-token`) в namespace приложения.
+   Команды ниже читают token без эха и передают через stdin, не аргументы процесса:
+
+   ```bash
+   kubectl --context k3d-duncarbox create namespace duncarbox --dry-run=client -o yaml | \
+     kubectl --context k3d-duncarbox apply -f -
+   read -rsp 'Cloudflare API token: ' DUNCARBOX_CF_TOKEN
    echo
-   export TF_VAR_postgres_password
+   export DUNCARBOX_CF_TOKEN
+   python3 -c 'import json, os; print(json.dumps({"apiVersion":"v1","kind":"Secret","metadata":{"name":"cloudflare-api-token","namespace":"duncarbox"},"type":"Opaque","stringData":{"api-token":os.environ["DUNCARBOX_CF_TOKEN"]}}))' | \
+     kubectl --context k3d-duncarbox apply --server-side -f -
+   unset DUNCARBOX_CF_TOKEN
    ```
 
-   Для автоматизации передавайте `TF_VAR_postgres_password` из хранилища секретов
-   CI. `postgres_user` и `postgres_database` по умолчанию равны `duncarbox`.
+   Существующий DDNS token подходит только при наличии обоих разрешений.
+   Отдельный token позволяет независимо менять и отзывать доступ cert-manager.
+   При другом имени Secret задайте `TF_VAR_cloudflare_api_token_secret_name`.
+   Этот Secret устанавливается отдельно и не управляется OpenTofu.
+   См. [Cloudflare DNS-01](https://cert-manager.io/docs/configuration/acme/dns01/cloudflare/).
+4. Выполните сборку образов и обычный `plan/apply` из раздела запуска.
+   При обновлении существующей HTTP-установки также нужен новый frontend image
+   с обновлённым nginx config. До готовности Certificate браузер может видеть
+   стандартный недоверенный сертификат Traefik; успешный `apply` сам по себе
+   не означает, что сертификат уже выпущен.
 
-2. **При запуске с нуля создайте кластер до общего `plan` или `apply`:**
+Для пробного выпуска задайте `TF_VAR_acme_staging=true`. Такой сертификат
+не доверен браузерами. Для перехода на production снимите эту переменную,
+повторите `plan/apply`, затем запросите перевыпуск через
+`cmctl --context k3d-duncarbox -n duncarbox renew duncarbox-tls` и дождитесь
+завершения нового CertificateRequest. После перехода не ограничивайтесь старым
+статусом Ready: проверьте issuer и сроки сертификата, который отдаёт Traefik.
+По умолчанию используется production Let’s Encrypt.
 
-   ```bash
-   tofu -chdir=infra/k3d-infra apply -target=k3d_cluster.main
-   kubectl --context k3d-duncarbox get nodes
-   ```
+### HTTP-01 вместо Cloudflare DNS-01
 
-   Если кластер и контекст уже существуют, пропустите этот шаг. При другом
-   `cluster_name` замените имя контекста в команде kubectl.
+Задайте `TF_VAR_acme_solver=http01`, если origin доступен по HTTP и из
+cert-manager pod, и из Интернета. Cloudflare Secret в этом режиме не нужен.
+Порт 80 должен оставаться открытым для продления. Solver создаёт отдельный
+маршрут `/.well-known/acme-challenge/` на entrypoint `web` с приоритетом 1000,
+без middleware перенаправления. При IPv6-only DNS и IPv4-only pod network
+используйте режим DNS-01 по умолчанию.
 
-   Провайдер Kustomization читает kubeconfig на этапе планирования. Поэтому
-   общий `tofu apply` в пустом окружении завершается ошибкой
-   `context "k3d-duncarbox" does not exist`: кластер ещё не создан.
-   `depends_on` у namespace задаёт порядок создания ресурсов, но не откладывает
-   настройку провайдера. Начальный запуск с `-target` включает только кластер
-   и позволяет создать kubeconfig до планирования Kubernetes-ресурсов.
-   Предупреждение OpenTofu о resource targeting ожидаемо; дальнейшие шаги
-   выполняются без `-target`.
+### Существующий сертификат или локальная проверка
 
-3. Соберите оба образа существующими Dockerfile и отправьте их в registry:
+Можно обойтись без cert-manager: задайте `TF_VAR_manage_certificate=false`
+до планирования и установите Secret в namespace `duncarbox`:
 
-   ```bash
-   registry_push="$(tofu -chdir=infra/k3d-infra output -raw registry_push_address)"
-   docker build -f backend/Dockerfile -t "$registry_push/duncarbox-backend:$TF_VAR_image_tag" .
-   docker build -f frontend/Dockerfile -t "$registry_push/duncarbox-frontend:$TF_VAR_image_tag" .
-   docker push "$registry_push/duncarbox-backend:$TF_VAR_image_tag"
-   docker push "$registry_push/duncarbox-frontend:$TF_VAR_image_tag"
-   ```
+```bash
+kubectl --context k3d-duncarbox create namespace duncarbox --dry-run=client -o yaml | \
+  kubectl --context k3d-duncarbox apply -f -
+kubectl --context k3d-duncarbox -n duncarbox create secret tls duncarbox-tls \
+  --cert=/secure/path/fullchain.pem --key=/secure/path/privkey.pem \
+  --dry-run=client -o yaml | kubectl --context k3d-duncarbox apply -f -
+```
 
-   Хост отправляет образы через `localhost:<registry_host_port>`. Kubernetes
-   загружает их через `<registry_name>:5000`; overlay подставляет этот адрес
-   автоматически. Провайдер создаёт registry с именем из `registries.create.name`
-   без префикса `k3d-`. Это имя также используется в HTTP mirror в
-   `/etc/rancher/k3s/registries.yaml` узлов кластера.
+Сертификат должен содержать `ingress_host` в SAN; `fullchain.pem` — сертификат
+и промежуточные CA. Для другого имени Secret задайте `TF_VAR_tls_secret_name`.
+Обновление и продление такого сертификата выполняет его владелец.
+При переключении с cert-manager используйте новое имя Secret, чтобы исключить
+конфликт владения и зависимость от политики удаления старого Certificate.
 
-4. Проверьте и примените план:
+Для локальной проверки можно создать временный self-signed сертификат вне репозитория:
 
-   ```bash
-   tofu -chdir=infra/k3d-infra validate
-   tofu -chdir=infra/k3d-infra plan -out=deploy.tfplan
-   tofu -chdir=infra/k3d-infra apply deploy.tfplan
-   rm infra/k3d-infra/deploy.tfplan
-   unset TF_VAR_postgres_password
-   ```
+```bash
+tls_dir="$(mktemp -d)"
+openssl req -x509 -newkey rsa:2048 -nodes -days 7 \
+  -keyout "$tls_dir/privkey.pem" -out "$tls_dir/fullchain.pem" \
+  -subj '/CN=app.nikaeru.com' -addext 'subjectAltName=DNS:app.nikaeru.com'
+```
 
-   OpenTofu сначала создаёт namespace, затем остальные ресурсы, ожидая
-   готовности Deployment и StatefulSet до 10 минут. Backend ждёт PostgreSQL через init container
-   перед инициализацией каталога. Frontend через init container ждёт успешного
-   ответа `http://backend:8000/api/v1/health`, прежде чем запускать nginx:
-   отсутствие DNS-записи backend или ещё не готовый API не вызывают перезапуски nginx.
-   Проверки готовности используют существующие
-   HTTP endpoints приложения и `pg_isready` для БД.
+Установите его командой выше с путями из `$tls_dir`, затем проверяйте через
+`curl --cacert "$tls_dir/fullchain.pem" --resolve app.nikaeru.com:443:127.0.0.1 https://app.nikaeru.com/`.
+Не добавляйте приватные ключи в Git или container images.
 
-5. Проверьте результат (если `cluster_name` изменён, замените имя контекста):
+### Проверка и диагностика
 
-   ```bash
-   kubectl --context k3d-duncarbox -n duncarbox get pods,svc,ingress,pvc
-   curl --fail http://127.0.0.1/api/v1/health
-   curl --fail http://127.0.0.1/api/v1/boxes
-   ```
+```bash
+kubectl --context k3d-duncarbox -n duncarbox get issuer,certificate,certificaterequest
+kubectl --context k3d-duncarbox -n duncarbox get orders,challenges
+kubectl --context k3d-duncarbox -n duncarbox describe certificate duncarbox-tls
+curl --fail --resolve app.nikaeru.com:443:127.0.0.1 https://app.nikaeru.com/api/v1/health
+curl -6 --fail https://app.nikaeru.com/
+openssl s_client -connect app.nikaeru.com:443 -servername app.nikaeru.com </dev/null 2>/dev/null | \
+  openssl x509 -noout -subject -issuer -dates
+```
 
-   Интерфейс доступен по `http://<адрес-сервера>/`.
+Для Let's Encrypt не используйте `curl -k`: проверка должна подтверждать
+доверие к цепочке и соответствие hostname. Запрос по IP без правильного
+Host/SNI больше не является проверкой Ingress приложения. Если выпуск завис,
+проверьте состояние Challenge и логи cert-manager; для DNS-01 — token,
+права на зону и распространение TXT, для HTTP-01 — DNS и доступность TCP/80
+как извне, так и из pod.
+Перенаправление настроено только на HTTP Ingress приложения, чтобы не мешать
+[HTTP-01 solver](https://cert-manager.io/docs/configuration/acme/http01/).
+Настройки TLS и middleware соответствуют
+[документации Traefik Ingress](https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress/).
 
 ## Обновления и данные
 
@@ -163,10 +264,25 @@ ss -lnt6
 `tofu import` для `kustomization_resource`. После восстановления обычный
 `plan` не должен предлагать создание уже существующих ресурсов.
 
-При обновлении соберите и отправьте оба образа с новым `image_tag`, затем
-повторите `plan` и `apply` с прежним паролем БД. Новый тег запускает обновление
-Deployment. Kustomize добавляет хеши к именам ConfigMap и Secret и обновляет
-ссылки из pod templates при изменении конфигурации.
+Образы обновляются независимо:
+
+```bash
+make image-backend     # или make image-frontend; make images для обоих
+make image-tags
+make plan
+make apply
+```
+
+Makefile сохраняет опубликованные теги в `backend/.tofu/image-tag` и
+`frontend/.tofu/image-tag`. Они читаются OpenTofu через отдельные locals и
+имеют приоритет над старой общей переменной `image_tag`. Ручной export тегов
+не нужен. Непубликовавшийся образ не меняет выбранный тег. После изменения
+тегов или конфигурации Makefile отклоняет ранее сохранённый план.
+Выходное значение `application_image_tags` содержит карту обоих тегов.
+Подробности и миграция старой конфигурации — в [OPERATIONS.md](../OPERATIONS.md).
+
+Kustomize добавляет хеши к именам ConfigMap и Secret и обновляет ссылки
+из pod templates при изменении конфигурации.
 
 PVC сохраняет данные при перезапуске pod и обновлении приложения. Это отдельная
 база: данные из compose volume `postgres_data` автоматически не переносятся.
@@ -191,7 +307,7 @@ tofu -chdir=infra/k3d-infra plan
 ```
 
 `kubectl kustomize` проверяет YAML overlay: в его выводе остаются базовые имена
-образов и ссылки на ещё не созданный Secret. Полный overlay с реквизитами и
+образов, пример hostname `app.example.ru` и ссылки на ещё не созданные Secret. Полный overlay с реквизитами и
 образами собирает OpenTofu; применять YAML отдельно через `kubectl apply -k`
 не нужно. Порядок ресурсов и скрытие Secret следуют
 [документации Kustomization provider](https://github.com/kbst/terraform-provider-kustomization/blob/master/docs/resources/resource.md).

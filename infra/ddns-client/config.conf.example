@@ -26,6 +26,7 @@ FIREWALL_HOOK=
 # RECORD=<domain-within-zone>,<hex IPv6 suffix>,<proxied>
 # Разные DNS-имена могут использовать один суффикс с любыми значениями proxied.
 # RECORD=app-proxy,10,true
+# RECORD=ssh-proxy,20,true
 
 RECORD=app,10,false
 RECORD=ssh,20,false

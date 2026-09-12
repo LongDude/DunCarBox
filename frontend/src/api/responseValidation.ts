@@ -113,8 +113,8 @@ export const responseGuards = {
     optimization: optional(nullable(shape({
       status: oneOf('optimal', 'feasible', 'fallback'),
       reason: oneOf('completed', 'time_limit', 'size_limit', 'solver_error'),
-      workers: (value) => integer(value) && (value as number) <= 8,
-      time_limit_ms: (value) => integer(value) && (value as number) >= 1_000 && (value as number) <= 60_000,
+      workers: integer,
+      time_limit_ms: (value) => integer(value) && (value as number) > 0,
       support_ratio: ratio,
     }))),
   }),

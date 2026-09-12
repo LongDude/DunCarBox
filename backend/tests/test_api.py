@@ -55,7 +55,7 @@ def test_demo_api_is_deterministic_and_physically_valid(
     scenario_id: str,
 ) -> None:
     scenarios = client.get("/api/v1/demo/scenarios").json()
-    assert len(scenarios) == 4
+    assert len(scenarios) == 5
     request = client.get(f"/api/v1/demo/scenarios/{scenario_id}").json()
     first = client.post("/api/v1/pack", json=request)
     assert first.status_code == 200, first.text

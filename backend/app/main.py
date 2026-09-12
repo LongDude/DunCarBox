@@ -11,6 +11,7 @@ from app.domain.interfaces import PackingEngine
 from app.packing.dispatcher import PackingEngineDispatcher
 from app.services.fixtures import DemoFixtures
 from app.services.packing import PackingService
+from app.services.packing_jobs import PackingJobs
 from app.storage.boxes import PostgresBoxRepository
 
 
@@ -27,7 +28,11 @@ def create_app(settings: Settings | None = None, engine: PackingEngine | None = 
         application.state.demo_fixtures = fixtures
         application.state.packing_service = PackingService(selected_engine)
         application.state.engine_version = getattr(selected_engine, "version", "custom")
-        yield
+        application.state.packing_jobs = PackingJobs()
+        try:
+            yield
+        finally:
+            application.state.packing_jobs.close()
 
     application = FastAPI(
         title="DunCarBox",

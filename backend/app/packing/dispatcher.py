@@ -9,9 +9,9 @@ class PackingEngineDispatcher:
     # Health retains the version of the backwards-compatible default algorithm.
     version = DeterministicPackingEngine.version
 
-    def __init__(self) -> None:
+    def __init__(self, cancel_event=None) -> None:
         self._heuristic = DeterministicPackingEngine()
-        self._z3 = Z3PackingEngine()
+        self._z3 = Z3PackingEngine(cancel_event=cancel_event)
 
     def pack(self, request: PackingRequest) -> PackingResult:
         if request.options.algorithm == "heuristic":

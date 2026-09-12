@@ -1,12 +1,14 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.schemas.errors import ErrorResponse
 from app.schemas.packing import BoxTypeSchema, PackingRequestSchema, PackingResultSchema
 from app.services.fixtures import DemoFixtures
 from app.services.packing import PackingService
+from app.services.packing_jobs import PackingJobs
 from app.storage.boxes import BoxRepository
 
 router = APIRouter(
@@ -32,6 +34,18 @@ def get_packing_service(request: Request) -> PackingService:
 
 def get_fixtures(request: Request) -> DemoFixtures:
     return request.app.state.demo_fixtures
+
+
+def get_jobs(request: Request) -> PackingJobs:
+    return request.app.state.packing_jobs
+
+
+class PackingJobResponse(BaseModel):
+    id: str
+    status: Literal["running", "completed", "failed", "cancelled"]
+    error: str | None
+    elapsed_seconds: float
+    timeout_seconds: float | None
 
 
 class HealthResponse(BaseModel):
@@ -102,6 +116,30 @@ def pack(
 @router.get("/demo/scenarios", response_model=list[DemoScenarioResponse], tags=["demo"])
 def demo_scenarios(fixtures: Annotated[DemoFixtures, Depends(get_fixtures)]) -> list[dict]:
     return fixtures.scenarios
+
+
+@router.post("/pack/jobs", response_model=PackingJobResponse, status_code=202, tags=["packing"])
+def start_job(
+    payload: PackingRequestSchema,
+    jobs: Annotated[PackingJobs, Depends(get_jobs)],
+) -> dict:
+    return jobs.submit(payload.to_domain())
+
+
+@router.get("/pack/jobs/{job_id}", response_model=PackingJobResponse, tags=["packing"])
+def job_status(job_id: ResourceId, jobs: Annotated[PackingJobs, Depends(get_jobs)]) -> dict:
+    return jobs.status(job_id)
+
+
+@router.get("/pack/jobs/{job_id}/result", response_class=FileResponse, tags=["packing"])
+def job_result(job_id: ResourceId, jobs: Annotated[PackingJobs, Depends(get_jobs)]) -> FileResponse:
+    return FileResponse(jobs.result_path(job_id), media_type="application/json")
+
+
+@router.delete("/pack/jobs/{job_id}", status_code=204, tags=["packing"])
+def cancel_job(job_id: ResourceId, jobs: Annotated[PackingJobs, Depends(get_jobs)]) -> Response:
+    jobs.cancel(job_id)
+    return Response(status_code=204)
 
 
 @router.get("/demo/scenarios/{scenario_id}", response_model=PackingRequestSchema, tags=["demo"])

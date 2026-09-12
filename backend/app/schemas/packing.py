@@ -24,7 +24,7 @@ class BoxTypeSchema(ContractModel):
     width: Dimension
     height: Dimension
     max_weight: Weight
-    available_count: Annotated[int, Field(strict=True, ge=0, le=10_000)]
+    available_count: NonNegativeInt
 
     def to_domain(self) -> domain.BoxType:
         return domain.BoxType(**self.model_dump())
@@ -37,7 +37,7 @@ class ProductSchema(ContractModel):
     width: Dimension
     height: Dimension
     weight: Weight
-    quantity: Annotated[int, Field(strict=True, gt=0, le=1000)]
+    quantity: PositiveInt
     allow_rotation: Annotated[bool, Field(strict=True)] = True
 
     def to_domain(self) -> domain.Product:
@@ -48,13 +48,13 @@ class PackingOptionsSchema(ContractModel):
     include_alternatives: Annotated[bool, Field(strict=True)] = True
     max_alternatives: Annotated[int, Field(strict=True, ge=0, le=5)] = 3
     algorithm: domain.PackingAlgorithm = "heuristic"
-    solver_timeout_ms: Annotated[int, Field(strict=True, ge=1000, le=60_000)] = 10_000
-    solver_workers: Annotated[int, Field(strict=True, ge=1, le=8)] = 4
+    solver_timeout_ms: PositiveInt = 10_000
+    solver_workers: PositiveInt = 4
 
 
 class PackingRequestSchema(ContractModel):
-    boxes: Annotated[list[BoxTypeSchema], Field(max_length=100)]
-    products: Annotated[list[ProductSchema], Field(min_length=1, max_length=200)]
+    boxes: list[BoxTypeSchema]
+    products: Annotated[list[ProductSchema], Field(min_length=1)]
     options: PackingOptionsSchema = Field(default_factory=PackingOptionsSchema)
 
     @model_validator(mode="after")
@@ -63,8 +63,6 @@ class PackingRequestSchema(ContractModel):
             ids = [entry.id for entry in entries]
             if len(ids) != len(set(ids)):
                 raise ValueError(f"{name}: duplicate id")
-        if sum(product.quantity for product in self.products) > 1000:
-            raise ValueError("products: maximum 1000 physical items per request")
         return self
 
     def to_domain(self) -> domain.PackingRequest:
@@ -172,7 +170,7 @@ class PackingAlternativeSchema(ContractModel):
 class OptimizationInfoSchema(ContractModel):
     status: Literal["optimal", "feasible", "fallback"]
     reason: Literal["completed", "time_limit", "size_limit", "solver_error"]
-    workers: Annotated[int, Field(strict=True, ge=0, le=8)]
+    workers: NonNegativeInt
     time_limit_ms: PositiveInt
     support_ratio: Ratio = 1.0
 

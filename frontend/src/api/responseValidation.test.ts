@@ -12,7 +12,7 @@ it('keeps old fixtures compatible and accepts valid optimization metadata includ
 });
 
 it.each([
-  { status: 'unknown' }, { reason: 'unknown' }, { workers: 9 }, { workers: 1.5 },
+  { status: 'unknown' }, { reason: 'unknown' }, { workers: -1 }, { workers: 1.5 },
   { time_limit_ms: 0 }, { time_limit_ms: '1000' }, { support_ratio: 1.1 },
 ])('rejects malformed optimization metadata %j before rendering', (change) => {
   expect(responseGuards.result({ ...result, optimization: { ...optimization, ...change } })).toBe(false);

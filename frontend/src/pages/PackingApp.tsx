@@ -53,6 +53,7 @@ function Workspace({
   );
   const [calculated, setCalculated] = useState<CalculatedOrder | null>(null);
   const [loading, setLoading] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [demoLoading, setDemoLoading] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [errorOrigin, setErrorOrigin] = useState<'demo' | 'pack'>('pack');
@@ -96,6 +97,12 @@ function Workspace({
   useEffect(() => {
     headingFocus.current?.focus({ preventScroll: true });
   }, [view]);
+  useEffect(() => {
+    if (!loading) return;
+    const started = Date.now();
+    const timer = setInterval(() => setElapsedSeconds(Math.floor((Date.now() - started) / 1_000)), 1_000);
+    return () => clearInterval(timer);
+  }, [loading]);
 
   const invalidate = () => {
     packingController.current?.abort();
@@ -160,6 +167,7 @@ function Workspace({
     snapshot.products.forEach((product) => {
       product.name = product.name.trim();
     });
+    setElapsedSeconds(0);
     setLoading(true);
     setView('result');
     try {
@@ -476,6 +484,11 @@ function Workspace({
                     />
                     Предложить альтернативы
                   </label>
+                  {totalItems > 1_000 && (
+                    <p className="summary-note">
+                      Заказ рассчитывается в фоне. Можно отменить расчёт; оставьте вкладку открытой до получения плана.
+                    </p>
+                  )}
                   <button
                     className="primary-button calculate-button"
                     type="submit"
@@ -609,6 +622,8 @@ function Workspace({
           (loading ? (
             <section className="result-loading screen-only" aria-busy="true">
               <Loading label="Подбираем коробки и готовим пошаговый план…" />
+              <p>Прошло: {Math.floor(elapsedSeconds / 60)} мин {elapsedSeconds % 60} с</p>
+              {totalItems > 1_000 && <p>Фоновый расчёт {totalItems.toLocaleString('ru-RU')} предметов. Дождитесь плана или отмените расчёт.</p>}
               <div className="skeleton-metrics" />
               <div className="skeleton-scene" />
               <button

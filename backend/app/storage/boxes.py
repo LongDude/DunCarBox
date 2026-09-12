@@ -38,8 +38,19 @@ class PostgresBoxRepository:
                     width INTEGER NOT NULL CHECK (width > 0),
                     height INTEGER NOT NULL CHECK (height > 0),
                     max_weight INTEGER NOT NULL CHECK (max_weight > 0),
-                    available_count INTEGER NOT NULL CHECK (available_count >= 0)
+                    available_count BIGINT NOT NULL CHECK (available_count >= 0)
                 )
+            """)
+            connection.execute("""
+                DO $$ BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = current_schema() AND table_name = 'boxes'
+                        AND column_name = 'available_count' AND data_type = 'integer'
+                    ) THEN
+                        ALTER TABLE boxes ALTER COLUMN available_count TYPE BIGINT;
+                    END IF;
+                END $$
             """)
             connection.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY)")
             # Reserve the seed marker and insert rows in the same transaction.

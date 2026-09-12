@@ -21,9 +21,6 @@ from app.packing.options import EngineOptions
 from app.packing.scoring import solution_signature
 from app.packing.validation import validate_solution
 
-MAX_MODEL_ITEMS = 16
-MAX_MODEL_BOX_SLOTS = 64
-
 
 def _available_cpus() -> int:
     process_count = getattr(os, "process_cpu_count", None)
@@ -35,7 +32,7 @@ def _available_cpus() -> int:
     return os.cpu_count() or 1
 
 
-MAX_SOLVER_WORKERS = min(8, _available_cpus())
+MAX_SOLVER_WORKERS = _available_cpus()
 _WORKER_SLOTS = BoundedSemaphore(MAX_SOLVER_WORKERS)
 _FULL_SUPPORT = Fraction(1)
 _LOGGER = logging.getLogger(__name__)
@@ -81,6 +78,12 @@ def _worker(
 class Z3PackingEngine:
     version = "z3-packing-v1"
 
+    def __init__(self, cancel_event=None) -> None:
+        self._cancel_event = cancel_event
+
+    def _cancelled(self) -> bool:
+        return self._cancel_event is not None and self._cancel_event.is_set()
+
     def pack(self, request: PackingRequest) -> PackingResult:
         # Alternatives from an 80%-support engine cannot be reused in this model.
         baseline_request = replace(
@@ -95,6 +98,8 @@ class Z3PackingEngine:
             )
         ).pack(baseline_request)
         validate_solution(request, baseline, _FULL_SUPPORT)
+        if self._cancelled():
+            raise RuntimeError("Packing cancelled")
         timeout_ms = request.options.solver_timeout_ms
         workers_requested = min(max(1, request.options.solver_workers), MAX_SOLVER_WORKERS)
 
@@ -113,18 +118,12 @@ class Z3PackingEngine:
             validate_solution(request, completed, _FULL_SUPPORT)
             return completed
 
-        if baseline.metrics.total_items > MAX_MODEL_ITEMS:
-            return finish(baseline, "fallback", "size_limit", 0)
-
         # This import remains lazy so heuristic-only requests do not load Z3.
         from app.packing.z3_model import box_slots
 
         slots = box_slots(request)
         if not slots or not baseline.metrics.total_items:
             return finish(baseline, "optimal", "completed", 0)
-        if len(slots) > MAX_MODEL_BOX_SLOTS:
-            return finish(baseline, "fallback", "size_limit", 0)
-
         context = multiprocessing.get_context("spawn")
         deadline = monotonic() + max(1, timeout_ms) / 1000
         running: list[tuple[multiprocessing.Process, Connection]] = []
@@ -136,13 +135,15 @@ class Z3PackingEngine:
         try:
             for variant in range(workers_requested):
                 remaining = deadline - monotonic()
-                if remaining <= 0:
+                if remaining <= 0 or self._cancelled():
                     break
-                granted = (
-                    _WORKER_SLOTS.acquire(timeout=remaining)
-                    if not running
-                    else _WORKER_SLOTS.acquire(blocking=False)
-                )
+                granted = _WORKER_SLOTS.acquire(blocking=False)
+                while (
+                    not granted and not running and monotonic() < deadline and not self._cancelled()
+                ):
+                    granted = _WORKER_SLOTS.acquire(
+                        timeout=min(0.1, max(0, deadline - monotonic()))
+                    )
                 if not granted:
                     break
                 acquired += 1
@@ -165,7 +166,7 @@ class Z3PackingEngine:
                 running.append((process, receiver))
 
             active = [connection for _, connection in running]
-            while active and monotonic() < deadline and proof is None:
+            while active and monotonic() < deadline and proof is None and not self._cancelled():
                 ready = wait(active, timeout=min(0.05, max(0, deadline - monotonic())))
                 for connection in ready:
                     try:
@@ -213,6 +214,8 @@ class Z3PackingEngine:
             # The incumbent can be the selected plan: a solver proof of the same
             # objective also proves that independently validated plan optimal.
             return finish(best, "optimal", "completed", len(running))
+        if self._cancelled():
+            raise RuntimeError("Packing cancelled")
         if proof is not None:
             reason = "solver_error"
         return finish(best, "feasible" if best_from_solver else "fallback", reason, len(running))

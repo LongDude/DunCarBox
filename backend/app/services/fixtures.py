@@ -4,6 +4,7 @@ from pathlib import Path
 from pydantic import TypeAdapter
 
 from app.domain.models import BoxType, PackingRequest, PackingResult
+from app.packing.workloads import make_request
 from app.schemas.packing import BoxTypeSchema, PackingRequestSchema, PackingResultSchema
 
 
@@ -30,6 +31,19 @@ class DemoFixtures:
                 )
             )
         self.pairs: tuple[tuple[PackingRequest, PackingResult], ...] = tuple(pairs)
+        # This server-only demo is calculated afresh, never replayed from a saved result.
+        self.scenarios.append(
+            {
+                "id": "large-order",
+                "name": "Большой заказ: 10 000 предметов · 100 видов · 8 типов коробок",
+                "description": (
+                    "100 разных товаров по 100 единиц и 8 типов коробок. "
+                    "Выберите алгоритм и рассчитайте новый план."
+                ),
+                "expected_status": "success",
+            }
+        )
+        self._requests["large-order"] = PackingRequestSchema.model_validate(make_request())
         self.catalog: tuple[BoxType, ...] = tuple(
             box.to_domain()
             for box in TypeAdapter(list[BoxTypeSchema]).validate_json(

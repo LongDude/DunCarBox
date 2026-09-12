@@ -5,7 +5,6 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 from app.packing.stress_benchmark import make_request, run_benchmark
 from app.schemas.packing import PackingRequestSchema
@@ -33,9 +32,9 @@ def test_stress_workload_is_reproducible_diverse_and_fully_feasible() -> None:
             assert item.weight <= box.max_weight
 
 
-def test_stress_workload_does_not_silently_expand_the_public_api_limit() -> None:
-    with pytest.raises(ValidationError, match="maximum 1000 physical items"):
-        PackingRequestSchema.model_validate(asdict(make_request()))
+def test_large_demo_is_accepted_by_the_public_api_schema() -> None:
+    parsed = PackingRequestSchema.model_validate(asdict(make_request()))
+    assert sum(p.quantity for p in parsed.products) == 10_000
     assert make_request("z3").options.algorithm == "z3"
 
 

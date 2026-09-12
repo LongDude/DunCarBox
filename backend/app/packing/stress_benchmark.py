@@ -1,8 +1,8 @@
 """An opt-in, single-order benchmark: 10,000 units, 100 SKUs, eight carton types.
 
 Run from backend: python -m app.packing.stress_benchmark --timeout-seconds 600
-This exercises the real engine and instruction service directly, above the HTTP
-limit of 1,000 units. It never splits the order or truncates the requested goods.
+This exercises the same real engine and instruction service as the large-order
+menu demo. It never splits the order or truncates the requested goods.
 """
 
 import argparse
@@ -20,59 +20,26 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 from time import monotonic, perf_counter
 
-from app.domain.models import BoxType, PackingOptions, PackingRequest, Product
+from app.domain.models import PackingRequest
 from app.packing.dispatcher import PackingEngineDispatcher
 from app.packing.validation import validate_solution
+from app.packing.workloads import WORKLOAD_ID, make_request
 from app.services.packing import PackingService
 
-WORKLOAD_ID = "packing-10000-100sku-8boxes-v1"
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[3] / ".cache" / "stress-10000"
-
-
-def make_request(algorithm: str = "heuristic") -> PackingRequest:
-    if algorithm not in {"heuristic", "z3"}:
-        raise ValueError("algorithm must be heuristic or z3")
-    box_sizes = (
-        (250, 200, 150, 2500),
-        (300, 220, 180, 5000),
-        (350, 250, 200, 7500),
-        (400, 280, 220, 10000),
-        (450, 300, 250, 15000),
-        (500, 350, 300, 20000),
-        (550, 400, 350, 25000),
-        (600, 450, 400, 30000),
-    )
-    return PackingRequest(
-        boxes=tuple(
-            BoxType(f"box-{i + 1:02}", f"Carton {i + 1}", *size, available_count=1250)
-            for i, size in enumerate(box_sizes)
-        ),
-        products=tuple(
-            Product(
-                id=f"sku-{i + 1:03}",
-                name=f"Product {i + 1:03}",
-                length=60 + i * 37 % 181,
-                width=40 + i * 23 % 141,
-                height=25 + i * 17 % 116,
-                weight=100 + i * 97 % 1901,
-                quantity=100,
-                allow_rotation=i % 4 != 0,
-            )
-            for i in range(100)
-        ),
-        options=PackingOptions(algorithm=algorithm),
-    )
 
 
 def _json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
 
 
-def _worker(connection: Connection, request: PackingRequest, result_path: Path) -> None:
+def _worker(
+    connection: Connection, request: PackingRequest, result_path: Path, cancel_event
+) -> None:
     try:
         original = asdict(request)
         started = perf_counter()
-        result = PackingService(PackingEngineDispatcher()).pack(request)
+        result = PackingService(PackingEngineDispatcher(cancel_event=cancel_event)).pack(request)
         packing_seconds = perf_counter() - started
         connection.send({"phase": "validation"})
         started = perf_counter()
@@ -82,13 +49,8 @@ def _worker(connection: Connection, request: PackingRequest, result_path: Path) 
             raise AssertionError("Packing mutated the input order")
         if result.status != "success" or result.metrics.packed_items != 10_000:
             raise AssertionError("This feasible workload must pack all 10,000 units")
-        if request.options.algorithm == "z3" and (
-            result.optimization is None
-            or result.optimization.status != "fallback"
-            or result.optimization.reason != "size_limit"
-            or result.optimization.workers != 0
-        ):
-            raise AssertionError("10,000 units must use an explicit Z3 size-limit fallback")
+        if request.options.algorithm == "z3" and result.optimization is None:
+            raise AssertionError("Z3 must report its actual optimization outcome")
         validation_seconds = perf_counter() - started
         connection.send({"phase": "serialization"})
         result_path.write_text(_json(asdict(result)), encoding="utf-8", newline="\n")
@@ -119,9 +81,8 @@ def run_benchmark(
 ) -> dict:
     """Bound the complete run, including Z3's heuristic fallback and validation.
 
-    Only this fixed 10,000-unit workload is accepted. It exceeds the Z3 model
-    cap, so the worker cannot spawn any nested Z3 processes. The parent can
-    terminate and join it reliably without leaving an optimizer running.
+    Cancellation is forwarded to the Z3 controller to reap nested workers
+    before stopping the benchmark process.
     """
     if not 0 < timeout_seconds <= 86_400:
         raise ValueError("timeout_seconds must be in (0, 86400]")
@@ -153,9 +114,12 @@ def run_benchmark(
     }
     (output / "report.json").write_text(_json(report), encoding="utf-8", newline="\n")
     context = multiprocessing.get_context("spawn")
+    cancel_event = context.Event()
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(
-        target=_worker, args=(sender, request, result_path), name="duncarbox-stress-10000"
+        target=_worker,
+        args=(sender, request, result_path, cancel_event),
+        name="duncarbox-stress-10000",
     )
     started = monotonic()
     next_progress = started
@@ -185,6 +149,8 @@ def run_benchmark(
         sender.close()
         receiver.close()
         if process.pid is not None:
+            cancel_event.set()
+            process.join(timeout=5 if algorithm == "z3" else 0)
             if process.is_alive():
                 process.terminate()
             process.join(timeout=2)

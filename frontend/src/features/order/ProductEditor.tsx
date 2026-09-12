@@ -268,7 +268,7 @@ export function ProductEditor({
           <span className="form-count">
             {products.length} поз. · {total.toLocaleString('ru-RU')} шт.
           </span>
-          <span className="form-helper">Tab — следующее поле · До 200 позиций и 1 000 единиц</span>
+          <span className="form-helper">Tab — следующее поле · Количество указывается в единицах товара</span>
         </div>
       </div>
     </div>

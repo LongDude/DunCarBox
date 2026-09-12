@@ -16,7 +16,7 @@ from app.packing.diagnostics import build_issues
 from app.packing.engine import _metrics
 from app.packing.strategies import expand_items
 from app.packing.validation import validate_solution
-from app.packing.z3_engine import MAX_MODEL_ITEMS, Z3PackingEngine
+from app.packing.z3_engine import Z3PackingEngine
 from app.packing.z3_model import _build_model, box_slots
 
 
@@ -159,21 +159,22 @@ def test_unpacked_item_cannot_support_a_packed_item():
     assert model.optimizer.check() == z3.unsat
 
 
-def test_large_order_uses_explicit_fallback_without_dropping_units():
-    value = request([box(stock=MAX_MODEL_ITEMS + 1)], [product(quantity=MAX_MODEL_ITEMS + 1)])
+def test_large_order_attempts_solver_without_dropping_units():
+    value = request([box(stock=17)], [product(quantity=17)], timeout=100)
     result = pack(value)
-    assert result.metrics.total_items == result.metrics.packed_items == MAX_MODEL_ITEMS + 1
+    assert result.metrics.total_items == result.metrics.packed_items == 17
     assert result.optimization.status == "fallback"
-    assert result.optimization.reason == "size_limit"
-    assert result.optimization.workers == 0
+    assert result.optimization.reason == "time_limit"
+    assert result.optimization.workers == 1
 
 
-def test_box_slot_limit_is_explicit_and_does_not_truncate_catalog():
-    value = request([box(str(i)) for i in range(65)], [product()])
+def test_box_slots_above_previous_limit_still_reach_solver():
+    value = request([box(str(i)) for i in range(65)], [product()], timeout=100)
     result = pack(value)
     assert result.metrics.packed_items == 1
     assert result.optimization.status == "fallback"
-    assert result.optimization.reason == "size_limit"
+    assert result.optimization.reason == "time_limit"
+    assert result.optimization.workers == 1
 
 
 def _unresponsive_worker(*args):

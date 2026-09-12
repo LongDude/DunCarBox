@@ -32,14 +32,15 @@ JSON использует snake_case. Неизвестные поля входа
 |---|---|
 | BoxType | id, name, length, width, height, max_weight, available_count |
 | Product | id, name, length, width, height, weight, quantity, allow_rotation=true |
-| PackingOptions | include_alternatives=true, max_alternatives=3 (0..5), algorithm="heuristic" (`heuristic/z3`), solver_timeout_ms=10000 (1000..60000), solver_workers=4 (1..8) |
+| PackingOptions | include_alternatives=true, max_alternatives=3 (0..5), algorithm="heuristic" (`heuristic/z3`), solver_timeout_ms=10000 (>0), solver_workers=4 (>0; фактически не больше доступных CPU) |
 | PackingRequest | boxes: BoxType[], products: Product[], options: PackingOptions={} |
 
 ID: `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`, уникален внутри своего массива.
 Название: непустая строка до 200 символов, пробелы по краям удаляются.
 Размеры: 1..100000 мм. Вес/max_weight: 1..100000000 г.
-available_count: 0..10000; quantity: 1..1000. Не более 100 типов коробок,
-200 строк товаров и 1000 физических единиц всего. Дроби, строки вместо чисел,
+available_count: неотрицательное целое; quantity: положительное целое.
+Фиксированных пределов числа единиц, строк товаров и типов коробок нет.
+Frontend требует точного представления целых чисел в JavaScript; каталог хранит остаток в PostgreSQL BIGINT. Дроби, строки вместо чисел,
 булевы вместо чисел и неизвестные поля отклоняются с HTTP 422.
 `products` непустой; `boxes=[]` допустим как предметно невозможный заказ.
 Нулевой остаток допустим и должен учитываться движком, не удаляться из запроса.
@@ -67,7 +68,7 @@ solver_timeout_ms и solver_workers применяются только к Z3. �
 | PackingInstructionStep | step, action, box_id, message, item_instance_id, product_id, position, dimensions, orientation |
 | PackingAlternative | id, description, status, metrics, packed_boxes[], unpacked_items[], issues[] |
 | PackingResult | status, metrics, packed_boxes[], unpacked_items[], issues[], alternatives[], algorithm_version, optimization=null |
-| OptimizationInfo | status (`optimal/feasible/fallback`), reason (`completed/time_limit/size_limit/solver_error`), workers (0..8), time_limit_ms, support_ratio=1.0 |
+| OptimizationInfo | status (`optimal/feasible/fallback`), reason (`completed/time_limit/size_limit/solver_error`), workers (реально запущенные процессы, >=0), time_limit_ms, support_ratio=1.0 |
 
 `optimization` отсутствует в старых fixtures или равно null у обычной эвристики.
 При выборе Z3 оно обязательно: `optimal` означает доказанный оптимум **основного**
@@ -126,6 +127,10 @@ solver_timeout_ms и solver_workers применяются только к Z3. �
 | PUT | /boxes/{id} | полная BoxType → 200; id тела должен совпасть с URL |
 | DELETE | /boxes/{id} | 204 без тела; отсутствие → 404 |
 | POST | /pack | PackingRequest → 200 PackingResult |
+| POST | /pack/jobs | PackingRequest → 202 `{id,status,error,elapsed_seconds,timeout_seconds}` |
+| GET | /pack/jobs/{id} | состояние фонового расчёта |
+| GET | /pack/jobs/{id}/result | 200 PackingResult JSON; до готовности → 409 |
+| DELETE | /pack/jobs/{id} | остановка фонового расчёта → 204 |
 | GET | /demo/scenarios | 200 `[{id,name,description,expected_status}]` |
 | GET | /demo/scenarios/{id} | 200 PackingRequest; отсутствие → 404 |
 
@@ -133,6 +138,15 @@ POST /pack всегда получает явный snapshot boxes. Катало
 при первом запуске заполняется демо-типами; удалённые записи не восстанавливаются
 при перезапуске. Расчёт не резервирует и не списывает остатки и не сохраняет заказ.
 Это позволяет сравнивать планы без побочных эффектов. Orders/history отложены.
+
+Фоновые состояния: `running/completed/failed/cancelled`. `timeout_seconds=null`
+означает отсутствие общего ограничения времени; отдельный бюджет Z3 сохраняется.
+Одновременно выполняется один фоновый заказ (второй → 409). Результаты временные:
+до трёх последних задач, URL истекает через 15 минут после завершения. Штатный
+запуск — один Uvicorn процесс. При рестарте задачи исчезают, каталог сохраняется.
+UI выбирает фон для >1000 единиц или поиска >60 секунд; это пороги выбора транспорта,
+не ограничения допустимого запроса. Серверное demo `large-order` генерируется
+тем же кодом, что CLI; готового ответа для него нет.
 
 **Основной серверный режим:** `DeterministicPackingEngine`, версия
 `candidate-packing-v1`, вычисляет размещения для любого валидного входа в пределах
@@ -145,9 +159,10 @@ POST /pack всегда получает явный snapshot boxes. Катало
 фактический результат описывают `algorithm_version` и `optimization`.
 Z3 решает целочисленную модель: максимум количества упакованных единиц → максимум
 их объёма → минимум использованных коробок → минимум их суммарного объёма.
-Цены коробок в контракте нет. Полная модель ограничена 16 экземплярами и 64 слотами
-коробок (сумма `min(stock, item_count)` по совместимым типам); превышение возвращает `fallback/size_limit`,
-не ошибку валидации и не молчаливое отбрасывание лишних товаров.
+Цены коробок в контракте нет. Прежние пределы 16 экземпляров / 64 слота сняты.
+Полезные слоты: сумма `min(stock, item_count)` по совместимым типам.
+При исчерпании выбранного времени возвращается лучший допустимый план, в том числе
+явно обозначенный резерв `fallback/time_limit`. Все единицы остаются в задаче.
 Ограничения и доказательство оптимальности подробнее в [Z3_ENGINE.md](Z3_ENGINE.md).
 
 **Автономный demo-режим frontend:** воспроизводит `demo/*.request.json` /

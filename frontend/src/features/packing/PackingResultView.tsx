@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { PackedBox, PackingRequest, PackingResult, Product } from '../../types/packing';
 import { BoxIcon } from '../../components/BoxIcon';
 import { Loading } from '../../components/Feedback';
@@ -477,7 +478,24 @@ export function PackingResultView({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [boxIndex, setBoxIndex] = useState(0);
+  const [printing, setPrinting] = useState(false);
   const plan = selectPlan(result, selectedId);
+  const pageSize = 12;
+  const pageStart = Math.floor(boxIndex / pageSize) * pageSize;
+  useEffect(() => {
+    const before = () => flushSync(() => setPrinting(true));
+    const after = () => setPrinting(false);
+    const media = window.matchMedia('print');
+    const changed = () => { if (media.matches) before(); else after(); };
+    window.addEventListener('beforeprint', before);
+    window.addEventListener('afterprint', after);
+    media.addEventListener('change', changed);
+    return () => {
+      window.removeEventListener('beforeprint', before);
+      window.removeEventListener('afterprint', after);
+      media.removeEventListener('change', changed);
+    };
+  }, []);
   const box = plan.packed_boxes[boxIndex];
   const status = statusDisplay(plan.status, plan.issues);
   const optimization = optimizationDisplay(result, request, selectedId !== null);
@@ -506,7 +524,10 @@ export function PackingResultView({
             >
               ↓ Экспорт JSON
             </button>
-            <button type="button" className="secondary-button" onClick={() => window.print()}>
+            <button type="button" className="secondary-button" onClick={() => {
+              flushSync(() => setPrinting(true));
+              window.print();
+            }}>
               Печать / PDF
             </button>
           </div>
@@ -608,8 +629,21 @@ export function PackingResultView({
                 Коробка {boxIndex + 1} / {plan.packed_boxes.length}
               </span>
             </div>
+            {plan.packed_boxes.length > pageSize && (
+              <div className="box-pagination">
+                <button type="button" className="secondary-button" disabled={pageStart === 0} onClick={() => setBoxIndex(pageStart - pageSize)}>← Предыдущие коробки</button>
+                <label>Номер коробки
+                  <select aria-label="Номер коробки" value={boxIndex} onChange={(event) => setBoxIndex(Number(event.target.value))}>
+                    {plan.packed_boxes.map((item, index) => <option key={item.id} value={index}>{index + 1} / {plan.packed_boxes.length} · {item.name}</option>)}
+                  </select>
+                </label>
+                <button type="button" className="secondary-button" disabled={pageStart + pageSize >= plan.packed_boxes.length} onClick={() => setBoxIndex(pageStart + pageSize)}>Следующие коробки →</button>
+              </div>
+            )}
             <div className="box-selector" aria-label="Коробки плана">
-              {plan.packed_boxes.map((item, index) => (
+              {plan.packed_boxes.slice(pageStart, pageStart + pageSize).map((item, offset) => {
+                const index = pageStart + offset;
+                return (
                 <button
                   type="button"
                   key={item.id}
@@ -640,7 +674,8 @@ export function PackingResultView({
                     </span>
                   </span>
                 </button>
-              ))}
+                );
+              })}
             </div>
             <BoxWorkspace
               key={`${selectedId ?? 'main'}:${box.id}`}
@@ -665,7 +700,7 @@ export function PackingResultView({
           Вес указан без тары. Расчёт не списывает остатки коробок.
         </div>
       </div>
-      <PrintInstructions plan={plan} request={request} orderId={orderId} result={result} alternative={selectedId !== null} />
+      {(plan.metrics.total_items <= 1_000 || printing) && <PrintInstructions plan={plan} request={request} orderId={orderId} result={result} alternative={selectedId !== null} />}
     </>
   );
 }

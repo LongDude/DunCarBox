@@ -7,11 +7,11 @@ type RecordValue = Record<string, unknown>;
 export const inputLimits = {
   dimension: 100_000,
   weight: 100_000_000,
-  boxCount: 10_000,
-  productQuantity: 1_000,
-  totalItems: 1_000,
-  boxTypes: 100,
-  productTypes: 200,
+  boxCount: Number.MAX_SAFE_INTEGER,
+  productQuantity: Number.MAX_SAFE_INTEGER,
+  totalItems: Number.MAX_SAFE_INTEGER,
+  boxTypes: Number.MAX_SAFE_INTEGER,
+  productTypes: Number.MAX_SAFE_INTEGER,
 } as const;
 
 export function isRecord(value: unknown): value is RecordValue {
@@ -20,6 +20,7 @@ export function isRecord(value: unknown): value is RecordValue {
 
 function numberError(value: unknown, min: number, max: number): string | undefined {
   if (typeof value !== 'number' || !Number.isInteger(value)) return 'Введите целое число.';
+  if (!Number.isSafeInteger(value)) return 'Слишком большое число. Уменьшите значение.';
   if (value < min || value > max)
     return `Допустимо от ${min.toLocaleString('ru-RU')} до ${max.toLocaleString('ru-RU')}.`;
 }
@@ -119,7 +120,7 @@ export function validateRequest(value: unknown): FieldErrors {
       0,
     );
     if (total > inputLimits.totalItems)
-      errors.products = 'В одном заказе допускается не более 1 000 единиц товара.';
+      errors.products = 'Общее количество превышает точность целых чисел в браузере.';
   }
   if (value.options !== undefined) {
     if (!isRecord(value.options)) errors.options = 'Некорректные настройки расчёта.';
@@ -146,8 +147,8 @@ export function validateRequest(value: unknown): FieldErrors {
         value.options.algorithm !== 'z3'
       ) optionErrors.algorithm = 'Выберите эвристику или оптимизатор Z3.';
       for (const [field, min, max] of [
-        ['solver_timeout_ms', 1_000, 60_000],
-        ['solver_workers', 1, 8],
+        ['solver_timeout_ms', 1, Number.MAX_SAFE_INTEGER],
+        ['solver_workers', 1, Number.MAX_SAFE_INTEGER],
       ] as const) {
         if (value.options[field] !== undefined) {
           const error = numberError(value.options[field], min, max);
@@ -206,8 +207,8 @@ export function fieldLabel(field: string): string {
 
 export function apiErrorDetailMessage(detail: ApiErrorDetail): string {
   if (/[а-яё]/i.test(detail.message)) return detail.message;
-  if (detail.field.endsWith('solver_timeout_ms')) return 'Лимит поиска: от 1 до 60 секунд (целое число миллисекунд).';
-  if (detail.field.endsWith('solver_workers')) return 'Укажите целое число процессов от 1 до 8.';
+  if (detail.field.endsWith('solver_timeout_ms')) return 'Укажите положительное время поиска с точностью до миллисекунды.';
+  if (detail.field.endsWith('solver_workers')) return 'Укажите положительное целое число процессов.';
   if (detail.field.endsWith('algorithm')) return 'Выберите эвристику или оптимизатор Z3.';
   const labels: Record<string, string> = {
     missing: 'Заполните поле.',
@@ -226,8 +227,6 @@ export function apiErrorDetailMessage(detail: ApiErrorDetail): string {
     too_short: 'Добавьте хотя бы одну строку.',
   };
   if (detail.message.includes('duplicate id')) return 'Идентификаторы строк не должны повторяться.';
-  if (detail.message.includes('1000 physical items'))
-    return 'В одном заказе допускается не более 1 000 единиц товара.';
   return labels[detail.type] ?? 'Проверьте значение и допустимые ограничения.';
 }
 

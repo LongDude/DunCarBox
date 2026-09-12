@@ -17,10 +17,10 @@ export const defaultAlgorithmSettings: AlgorithmSettings = {
 function validSettings(value: unknown): value is AlgorithmSettings {
   return isRecord(value) &&
     (value.algorithm === 'heuristic' || value.algorithm === 'z3') &&
-    typeof value.solver_timeout_ms === 'number' && Number.isInteger(value.solver_timeout_ms) &&
-    value.solver_timeout_ms >= 1_000 && value.solver_timeout_ms <= 60_000 &&
-    typeof value.solver_workers === 'number' && Number.isInteger(value.solver_workers) &&
-    value.solver_workers >= 1 && value.solver_workers <= 8;
+    typeof value.solver_timeout_ms === 'number' && Number.isSafeInteger(value.solver_timeout_ms) &&
+    value.solver_timeout_ms > 0 &&
+    typeof value.solver_workers === 'number' && Number.isSafeInteger(value.solver_workers) &&
+    value.solver_workers >= 1;
 }
 
 export function readAlgorithmSettings(): AlgorithmSettings {

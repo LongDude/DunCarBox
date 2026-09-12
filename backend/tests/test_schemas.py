@@ -14,12 +14,10 @@ from app.schemas.packing import PackingRequestSchema
         ("boxes", "height", 100001),
         ("boxes", "max_weight", 0),
         ("boxes", "available_count", -1),
-        ("boxes", "available_count", 10001),
         ("boxes", "length", True),
         ("products", "length", 1.5),
         ("products", "weight", "250"),
         ("products", "quantity", 0),
-        ("products", "quantity", 1001),
         ("products", "quantity", False),
         ("products", "allow_rotation", "false"),
         ("products", "id", "a:b"),
@@ -47,10 +45,15 @@ def test_duplicate_ids_are_rejected(client: TestClient, order: dict, section: st
     assert client.post("/api/v1/pack", json=order).status_code == 422
 
 
-def test_total_quantity_limit(client: TestClient, order: dict) -> None:
-    order["products"][0]["quantity"] = 1000
+def test_large_orders_are_valid_without_fixed_count_limits(order: dict) -> None:
+    order["products"][0]["quantity"] = 100_000
     order["products"].append({**order["products"][0], "id": "more", "quantity": 1})
-    assert client.post("/api/v1/pack", json=order).status_code == 422
+    order["boxes"][0]["available_count"] = 10_000_000_000
+    order["options"].update(solver_workers=32, solver_timeout_ms=600_000)
+    parsed = PackingRequestSchema.model_validate(order).to_domain()
+    assert sum(product.quantity for product in parsed.products) == 100_001
+    assert parsed.options.solver_workers == 32
+    assert parsed.options.solver_timeout_ms == 600_000
 
 
 def test_default_options_and_boolean_values(order: dict) -> None:
@@ -83,11 +86,9 @@ def test_zero_stock_and_empty_boxes_are_valid_domain_inputs(order: dict) -> None
         {"algorithm": "unknown"},
         {"algorithm": 2},
         {"solver_timeout_ms": 0},
-        {"solver_timeout_ms": 60_001},
         {"solver_timeout_ms": True},
         {"solver_timeout_ms": "1000"},
         {"solver_workers": 0},
-        {"solver_workers": 9},
         {"solver_workers": 2.5},
     ],
 )

@@ -73,19 +73,21 @@ test('live API: changed quantity calculates a new plan', async ({ page }) => {
   await expect(page.locator('.status-badge')).toContainText('Заказ упакован');
 });
 
-test('live Z3: model limit shows fallback and accounts for the whole order', async ({ page }) => {
+test('live Z3: time budget shows fallback and accounts for the whole order', async ({ page }) => {
   await page.goto('/?mode=api');
   await page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true }).selectOption('z3');
   await page.getByLabel('Демо-сценарий').selectOption('simple-order');
   await page.getByRole('button', { name: 'Загрузить демо-заказ', exact: true }).click();
   await expect(page.getByLabel('Номер заказа')).toHaveValue('ДЕМО-simple-order');
   await page.getByLabel('Кол-во товара 1, шт.').fill('17');
+  await page.getByLabel('Лимит поиска, с', { exact: true }).fill('0.1');
   const response = page.waitForResponse(r => r.url().endsWith('/api/v1/pack'));
   await page.getByRole('button', { name: 'Рассчитать упаковку', exact: true }).click();
   const result = await (await response).json() as PackingResult;
   expect(result.metrics.total_items).toBe(17);
   expect(result.metrics.packed_items + result.metrics.unpacked_items).toBe(17);
-  expect(result.optimization).toMatchObject({ status: 'fallback', reason: 'size_limit', workers: 0, support_ratio: 1 });
+  expect(result.optimization).toMatchObject({ status: 'fallback', reason: 'time_limit', support_ratio: 1 });
+  expect(result.optimization!.workers).toBeGreaterThan(0);
   const summary = page.getByRole('region', { name: 'Алгоритм и качество решения' });
   await expect(summary).toContainText('Использована резервная эвристика');
   await expect(summary).toContainText('Оптимум не доказан');

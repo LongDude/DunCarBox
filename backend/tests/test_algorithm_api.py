@@ -76,7 +76,7 @@ def test_large_z3_request_returns_explained_valid_fallback(client: TestClient, o
     assert response.status_code == 200, response.text
     result = response.json()
     assert result["optimization"]["status"] == "fallback"
-    assert result["optimization"]["reason"] == "size_limit"
-    assert result["optimization"]["workers"] == 0
+    assert result["optimization"]["reason"] == "time_limit"
+    assert result["optimization"]["workers"] > 0
     assert result["metrics"]["total_items"] == 17
     assert_valid_response(order, result)

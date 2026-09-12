@@ -12,6 +12,23 @@ spec:
       labels:
         app.kubernetes.io/name: frontend
     spec:
+      initContainers:
+        - name: wait-for-backend
+          image: duncarbox-frontend
+          command:
+            - sh
+            - -ec
+            - |
+              until wget --spider --quiet --timeout=3 http://backend:8000/api/v1/health; do
+                echo "Waiting for backend to become ready..."
+                sleep 2
+              done
+          resources:
+            requests:
+              cpu: 25m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
       containers:
         - name: frontend
           image: duncarbox-frontend

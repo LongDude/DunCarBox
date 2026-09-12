@@ -1203,11 +1203,11 @@ main {
   color: #a3714c;
 }
 .unpacked-panel {
-  margin-top: 16px 0 16px;
+  margin: 16px 0 16px;
   background: #fffaf2;
   border: 1px solid #eadbbe;
   border-radius: 9px;
-  padding: 20px 24px;
+  padding: 20px 24px 12px;
 }
 .unpacked-panel h2 {
   font-size: 15px;

@@ -19,6 +19,46 @@ ClusterIP; отдельные порты backend и PostgreSQL на хосте �
 Ingress принимает любой HTTP Host. Домен можно указать в `.tofu/ingress.yaml`;
 TLS и сертификаты в этой конфигурации не настроены.
 
+## IPv4/IPv6, HAPP и UFW
+
+В `cluster.tf` для портов 80/443 намеренно не задан `host`: Docker публикует
+их на `0.0.0.0` и `[::]`. Привязка `host = "0.0.0.0"` ограничивает публикацию
+IPv4. Kubernetes API по-прежнему привязан к `127.0.0.1`.
+
+Используется IPv4-only bridge k3d и включённый Docker `userland-proxy`
+(значение по умолчанию). Прокси принимает IPv6 на хосте и соединяется с
+IPv4 контейнера; IPv6 внутри Kubernetes для этого не требуется.
+Не отключайте `userland-proxy` и не переводите bridge на native IPv6 DNAT
+без изменения маршрутизации ответов: до обратного SNAT у пакета контейнерный
+исходный адрес, поэтому правило `from <PUBLIC_IPV6>/128` его не перехватит.
+См. [публикацию портов Docker](https://docs.docker.com/engine/network/port-publishing/).
+
+DDNS-клиент с `DIRECT_ROUTING=true` выводит ответы только с текущих адресов
+`<PREFIX>::10` и `<PREFIX>::20` через физический шлюз. Остальной трафик
+продолжает использовать маршруты HAPP. UFW управляет хостовым `INPUT`;
+DDNS-hook добавляет динамические разрешения после пользовательских правил UFW.
+Установка и проверка описаны в [DDNS README](../ddns-client/README.md#ipv6-happ-и-ufw).
+
+При обновлении существующего кластера сначала установите DDNS/firewall,
+затем проверьте план изменения портов:
+
+```bash
+tofu -chdir=infra/k3d-infra plan -target=k3d_cluster.main -out=ipv6.tfplan
+tofu -chdir=infra/k3d-infra apply ipv6.tfplan
+rm infra/k3d-infra/ipv6.tfplan
+sudo systemctl restart ipv6-prefix-ddns.service
+docker ps --format 'table {{.Names}}\t{{.Ports}}'
+ss -lnt6
+```
+
+Это разовое целевое обновление сетевых портов. Остальные переменные OpenTofu
+задаются как в разделе запуска ниже. Провайдер `agynio/k3d` 0.2.3 обновляет
+портовые mappings через замену `serverlb`, без удаления server/agent nodes.
+Во время замены HTTP/HTTPS и Kubernetes API кратковременно недоступны.
+Ожидаемый план для данного изменения: `0 to add, 1 to change, 0 to destroy`.
+После применения проверьте наличие `[::]:80` и `[::]:443`, а затем подключение
+из внешней IPv6-сети; публикация портов сама по себе не настраивает TLS.
+
 ## Запуск
 
 Нужны Docker Engine, OpenTofu >= 1.8 и kubectl. При запуске с нуля сначала

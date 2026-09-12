@@ -4,6 +4,104 @@
 
 Опциональный firewall-hook интегрируется с существующим UFW и Docker/k3d firewall, позволяя разделить адрес приложения и адрес SSH.
 
+## IPv6, HAPP и UFW
+
+Для сервера за HAPP включите в конфигурации:
+
+```ini
+DIRECT_ROUTING=true
+FIREWALL_HOOK=/usr/local/sbin/ipv6-prefix-ddns-firewall
+```
+
+`DIRECT_ROUTING` по умолчанию выключен для конфигураций без этого параметра.
+В локальном `config.conf` и шаблоне он включён. Исключения действуют **по исходному
+адресу**, только для записей с суффиксами `10` и `20` текущего префикса:
+
+```text
+from <PREFIX>::10/128 lookup 106 priority 100
+from <PREFIX>::20/128 lookup 106 priority 101
+остальные источники → существующие маршруты HAPP
+```
+
+Это правила для ответов сервисов и исходящих сокетов, использующих эти адреса.
+Они не являются маской для любых IPv6, оканчивающихся на `::10`/`::20`, и не
+исключают из HAPP весь делегированный префикс. Несколько DNS-имён с одним
+суффиксом создают одно правило. Локальные адреса по-прежнему обслуживает
+системное правило `lookup local` с приоритетом 0.
+
+Таблица IPv6 `106`, protocol `242` и приоритеты `100/101` зарезервированы для
+DDNS. Таблица содержит текущую локальную сеть, link-local сеть и default через
+шлюз `INTERFACE`, выбранный из `main`. Default HAPP и правила IPv4 не изменяются.
+Чужие записи в таблице или правила приоритетов `1..101` вызывают ошибку вместо
+перезаписи. При исчезновении физического шлюза исключённые источники получают
+`unreachable`, пока шлюз не появится: их трафик не возвращается в тоннель.
+
+Проверка маршрутов выполняется каждые `POLL_INTERVAL` секунд независимо от
+DNS resync/cooldown. Смена префикса удаляет старые исключения, смена шлюза
+обновляет маршрут. `DIRECT_ROUTING=false` удаляет принадлежащие DDNS правила
+и маршруты при следующем запуске с новой конфигурацией. Простая остановка
+службы сохраняет уже установленные правила до перезагрузки.
+
+Для текущего k3d используется IPv4-only bridge с Docker `userland-proxy=true`:
+он принимает IPv6 в хостовом `INPUT` и передаёт запрос контейнеру по IPv4.
+В `infra/k3d-infra/cluster.tf` порты 80/443 публикуются без ограничения `host`
+для обоих семейств адресов. Native IPv6 DNAT контейнеров этой схемой
+маршрутизации ответов не покрывается.
+
+UFW должен быть активен с `IPV6=yes`. Цепочка `IPV6-DDNS-HOST` ограничивает
+доступные порты на управляемых адресах, затем возвращает разрешённые пакеты
+в UFW. Цепочка `IPV6-DDNS-ALLOW` вызывается **в конце `ufw6-user-input`**:
+пользовательские правила, включая явные deny/reject, проверяются раньше.
+Исключения разрешают `<PREFIX>::10` TCP/80,443 и `<PREFIX>::20` TCP/42.
+Сам sshd нужно отдельно настроить слушать IPv6 TCP/42.
+Default INPUT/OUTPUT/FORWARD policies UFW не изменяются; ICMPv6 остаётся
+под штатными правилами UFW. Маршрутизация не обходит фильтрацию OUTPUT.
+
+Если IPv6 `DOCKER-USER` отсутствует, hook устанавливает ограничивающую цепочку
+в `FORWARD`; для IPv6 userland-proxy это штатная ситуация. После `ufw reload`
+или изменения правил UFW перезапустите DDNS, чтобы восстановить динамический
+переход в `ufw6-user-input`. Эти runtime-правила проверяются через `ip6tables`,
+а не через `ufw status`.
+
+Обновление уже установленной службы, из корня репозитория:
+
+```bash
+sudo install -m 0750 infra/ddns-client/ipv6-prefix-ddns.py /usr/local/sbin/ipv6-prefix-ddns
+sudo install -m 0750 infra/ddns-client/ipv6-prefix-ddns-firewall /usr/local/sbin/ipv6-prefix-ddns-firewall
+sudo install -m 0600 infra/ddns-client/config.conf /etc/ipv6-prefix-ddns/config.conf
+sudo install -m 0644 infra/ddns-client/ipv6-prefix-ddns.service /etc/systemd/system/ipv6-prefix-ddns.service
+sudo systemctl daemon-reload
+sudo systemctl restart ipv6-prefix-ddns.service
+sudo journalctl -u ipv6-prefix-ddns.service -n 40 --no-pager
+```
+
+После успешной синхронизации примените изменение публикации портов по
+[инструкции k3d](../k3d-infra/README.md#ipv4ipv6-happ-и-ufw).
+
+Проверка маршрутов (подставьте текущие APP/SSH и обычный SLAAC-адрес):
+
+```bash
+ip -6 rule show
+ip -6 route show table 106
+ip -6 route get 2606:4700:4700::1111 from <APP_IPV6>
+ip -6 route get 2606:4700:4700::1111 from <SSH_IPV6>
+ip -6 route get 2606:4700:4700::1111 from <SLAAC_IPV6>
+sudo ip6tables -S ufw6-user-input
+sudo ip6tables -S IPV6-DDNS-ALLOW
+```
+
+Первые два route lookup должны выбрать `INTERFACE`, третий — `happ-xray`
+при включённом HAPP. Проверяйте TCP также из внешней IPv6-сети: локальное
+подключение к собственному адресу не проверяет входной firewall роутера.
+
+Тесты с реальными маршрутами и TCP-пакетами выполняются в одноразовых
+user/network namespaces, без изменения сети хоста:
+
+```bash
+unshare --user --map-root-user --net env DDNS_NETWORK_TESTS=1 \
+  python3 -m unittest discover -s infra/ddns-client/tests -v
+```
+
 Типичная конфигурация:
 
 ```text
@@ -198,9 +296,8 @@ iptables
 sudo ip6tables -nL DOCKER-USER
 ```
 
-Команда должна завершиться успешно.
-
-Если `DOCKER-USER` отсутствует, hook продолжит настройку host firewall, но Docker-specific часть будет пропущена с предупреждением.
+При отсутствии IPv6 `DOCKER-USER` hook использует `FORWARD` для ограничения
+forwarded-трафика. IPv6 userland-proxy работает через `INPUT` и UFW.
 
 ## 1.5 Требования к k3d / OpenTofu
 
@@ -259,7 +356,8 @@ PostgreSQL:
 ClusterIP only
 ```
 
-Docker/k3d желательно запустить до `ipv6-prefix-ddns.service`, чтобы к моменту выполнения firewall-hook уже существовала `DOCKER-USER`.
+Docker/k3d и UFW желательно запустить до `ipv6-prefix-ddns.service`.
+Hook требует активный IPv6 UFW и выбирает `DOCKER-USER` либо `FORWARD`.
 
 Если Docker или k3d были запущены позже, выполните:
 
@@ -289,7 +387,7 @@ sudo ufw status verbose
 Особенно важно не оставлять глобальное IPv6-разрешение SSH вида:
 
 ```text
-22/tcp ALLOW Anywhere (v6)
+42/tcp ALLOW Anywhere (v6)
 ```
 
 Иначе SSH может остаться доступным не только через `<PREFIX>::20`, но и через SLAAC или другие IPv6-адреса хоста.
@@ -353,7 +451,7 @@ docker ps
 sudo ip6tables -nL DOCKER-USER
 ```
 
-Если цепочка отсутствует, Docker-specific фильтрация из `ipv6-prefix-ddns-firewall` работать не будет.
+Если цепочка отсутствует, проверьте переход в `IPV6-DDNS-DOCKER` из `FORWARD`.
 
 ---
 
@@ -565,6 +663,18 @@ example.ru     → 2a00:1234:5678:abcd::40
 
 Суффикс интерпретируется как hexadecimal.
 
+Разные DNS-имена могут использовать одинаковый суффикс независимо от `proxied`:
+
+```ini
+RECORD=app,10,true
+RECORD=direct,10,false
+```
+
+Обе записи используют один origin IPv6-адрес. Каждая синхронизируется со своим
+значением `proxied`, а адрес добавляется в NetworkManager один раз. DNS-имя
+в конфигурации должно оставаться уникальным, чтобы записи не перезаписывали
+настройки друг друга.
+
 Эквивалентны, например:
 
 ```text
@@ -623,8 +733,8 @@ Host firewall выполняет следующую политику:
 
 ```text
 Host INPUT:
-  APP_IP TCP/80,443  ACCEPT
-  SSH_IP TCP/22      ACCEPT
+  APP_IP TCP/80,443  RETURN → UFW → dynamic ALLOW
+  SSH_IP TCP/42      RETURN → UFW → dynamic ALLOW
   прочие NEW TCP на APP_IP/SSH_IP  DROP
   остальные host packets          передаются UFW
 
@@ -841,6 +951,12 @@ daemon прекращает попытки для данного префикс�
 python3 -m py_compile ipv6-prefix-ddns.py
 ```
 
+Проверить обработку конфигурации (из каталога `infra/ddns-client`):
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
 Проверить Bash:
 
 ```bash
@@ -1024,7 +1140,7 @@ sudo ip6tables -S INPUT | grep IPV6-DDNS
 Проверить Docker jump:
 
 ```bash
-sudo ip6tables -S DOCKER-USER | grep IPV6-DDNS
+sudo ip6tables -S | grep IPV6-DDNS
 ```
 
 Проверить UFW:
@@ -1242,7 +1358,7 @@ curl -6 -fsS -o /dev/null \
 SSH port:
 
 ```bash
-nc -6 -vz ssh.example.ru 22
+nc -6 -vz ssh.example.ru 42
 ```
 
 k3d:
@@ -1258,7 +1374,7 @@ Docker firewall:
 
 ```bash
 sudo ip6tables -S INPUT | grep IPV6-DDNS
-sudo ip6tables -S DOCKER-USER | grep IPV6-DDNS
+sudo ip6tables -S | grep IPV6-DDNS
 
 sudo ip6tables -nvL IPV6-DDNS-HOST
 sudo ip6tables -nvL IPV6-DDNS-DOCKER
@@ -1287,7 +1403,7 @@ nc -6 -vz app.example.ru 80
 nc -6 -vz app.example.ru 443
 
 nc -6 -vz app.example.ru 22
-nc -6 -vz ssh.example.ru 22
+nc -6 -vz ssh.example.ru 42
 nc -6 -vz ssh.example.ru 80
 nc -6 -vz ssh.example.ru 443
 ```
@@ -1297,7 +1413,7 @@ app:80     success
 app:443    success
 app:22     blocked
 
-ssh:22     success
+ssh:42     success
 ssh:80     blocked
 ssh:443    blocked
 ```
@@ -1414,9 +1530,11 @@ Token должен иметь `DNS Write` для нужной зоны.
 sudo ip6tables -nL DOCKER-USER
 ```
 
-Убедитесь, что Docker запущен и используется iptables firewall backend.
+Для IPv4-only bridge отсутствие IPv6 `DOCKER-USER` допустимо: проверьте
+`sudo ip6tables -S FORWARD` и цепочку `IPV6-DDNS-DOCKER`. Docker должен
+использовать iptables backend.
 
-После исправления:
+После изменения Docker:
 
 ```bash
 sudo systemctl restart ipv6-prefix-ddns.service
@@ -1487,5 +1605,5 @@ PubkeyAuthentication yes
 и SSH на отдельном IPv6:
 
 ```text
-22/tcp → <PREFIX>::20
+42/tcp → <PREFIX>::20
 ```

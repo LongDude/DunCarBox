@@ -16,7 +16,7 @@ resource "k3d_cluster" "main" {
   # HTTP -> k3d loadbalancer
   #
   port {
-    host          = "0.0.0.0"
+    # No host IP: Docker publishes on IPv4 and IPv6 (userland-proxy).
     host_port      = 80
     container_port = 80
 
@@ -29,7 +29,7 @@ resource "k3d_cluster" "main" {
   # HTTPS -> k3d loadbalancer
   #
   port {
-    host          = "0.0.0.0"
+    # No host IP: Docker publishes on IPv4 and IPv6 (userland-proxy).
     host_port      = 443
     container_port = 443
 

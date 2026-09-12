@@ -22,6 +22,11 @@ STATE_DIR = Path("/var/lib/ipv6-prefix-ddns")
 STATE_FILE = STATE_DIR / "state.json"
 PENDING_STATE_FILE = STATE_DIR / "pending-state.json"
 CF_API_BASE = "https://api.cloudflare.com/client/v4"
+# Reserved for this daemon; never modify HAPP's main table or rules.
+DIRECT_TABLE = "106"
+DIRECT_PROTOCOL = "242"
+DIRECT_PRIORITY = 100
+DIRECT_SUFFIXES = {0x10, 0x20}
 
 log = logging.getLogger("ipv6-prefix-ddns")
 
@@ -48,6 +53,7 @@ class Config:
     cooldown: int = 900
     resync_interval: int = 900
     firewall_hook: str = ""
+    direct_routing: bool = False
 
 
 def setup_logging() -> None:
@@ -135,21 +141,16 @@ def load_config(path: str) -> Config:
         raise RuntimeError("CF_ZONE must not be empty")
 
     hostnames: set[str] = set()
-    suffixes: set[int] = set()
 
+    # Different hostnames may share an IPv6 address and use independent proxy settings.
     for record in records:
         hostname = zone if record.subdomain == "@" else f"{record.subdomain}.{zone}"
         hostname = hostname.rstrip(".").lower()
 
         if hostname in hostnames:
             raise RuntimeError(f"duplicate RECORD hostname: {hostname}")
-        if record.suffix in suffixes:
-            raise RuntimeError(
-                f"duplicate RECORD IPv6 suffix: ::{record.suffix:x}"
-            )
 
         hostnames.add(hostname)
-        suffixes.add(record.suffix)
 
     def positive_int(name: str, default: int) -> int:
         raw = values.get(name, str(default))
@@ -175,6 +176,7 @@ def load_config(path: str) -> Config:
         cooldown=positive_int("COOLDOWN", 900),
         resync_interval=positive_int("RESYNC_INTERVAL", 900),
         firewall_hook=values.get("FIREWALL_HOOK", "").strip(),
+        direct_routing=parse_bool(values.get("DIRECT_ROUTING", "false")),
     )
 
 
@@ -309,6 +311,118 @@ def hostname_for(config: Config, record: RecordConfig) -> str:
     if record.subdomain == "@":
         return config.cf_zone
     return f"{record.subdomain}.{config.cf_zone}".rstrip(".").lower()
+
+
+def configure_direct_routing(config: Config, network: ipaddress.IPv6Network) -> None:
+    """Bypass the TUN only for the two managed source /128s.
+
+    This is for host sockets, including Docker's IPv6-to-IPv4 userland proxy.
+    Native Docker IPv6 DNAT needs reply marking before routing instead.
+    """
+    rules = json.loads(run("ip", "-N", "-j", "-6", "rule", "show").stdout)
+    # Query table all: querying a not-yet-created table directly returns ENOENT.
+    routes = json.loads(run("ip", "-N", "-j", "-6", "route", "show", "table", "all").stdout)
+    for route in routes:
+        route["type"] = {"1": "unicast", "7": "unreachable"}.get(
+            str(route.get("type", "unicast")), route.get("type", "unicast")
+        )
+    table_routes = [r for r in routes if str(r.get("table")) == DIRECT_TABLE]
+    owned_rules = [
+        r for r in rules
+        if str(r.get("table")) == DIRECT_TABLE
+        and str(r.get("protocol")) == DIRECT_PROTOCOL
+    ]
+    if not config.direct_routing and not owned_rules and not any(
+        str(r.get("protocol")) == DIRECT_PROTOCOL for r in table_routes
+    ):
+        return
+    if any(str(r.get("protocol")) != DIRECT_PROTOCOL for r in table_routes):
+        raise RuntimeError(f"routing table {DIRECT_TABLE} is already used by another service")
+    if any(str(r.get("table")) == DIRECT_TABLE and r not in owned_rules for r in rules):
+        raise RuntimeError(f"routing table {DIRECT_TABLE} has foreign policy rules")
+
+    def delete_rule(rule: dict[str, Any]) -> None:
+        run("ip", "-6", "rule", "del", "priority", str(rule["priority"]),
+            "from", rule["src"], "table", DIRECT_TABLE, "protocol", DIRECT_PROTOCOL)
+
+    if not config.direct_routing:
+        for rule in owned_rules:
+            delete_rule(rule)
+        if table_routes:
+            run("ip", "-6", "route", "flush", "table", DIRECT_TABLE,
+                "proto", DIRECT_PROTOCOL)
+        return
+
+    if any(0 < int(r["priority"]) <= DIRECT_PRIORITY + 1 and r not in owned_rules
+           for r in rules):
+        raise RuntimeError("IPv6 policy priorities 1..101 conflict with direct routing")
+
+    sources = sorted({
+        str(ipaddress.IPv6Address(int(network.network_address) + record.suffix)) + "/128"
+        for record in config.records if record.suffix in DIRECT_SUFFIXES
+    })
+    # Select the physical RA gateway, never the lower-metric TUN default.
+    gateways = [r for r in routes if r.get("dst") == "default"
+                and r.get("dev") == config.interface and r.get("gateway")
+                and str(r.get("table", "main")) in ("main", "254")
+                and r.get("type", "unicast") == "unicast"
+                and "from" not in r and "dead" not in r.get("flags", [])]
+    gateway = min(gateways, key=lambda r: r.get("metric", 1024)) if gateways else None
+
+    # Keep a terminal fallback: loss of the physical gateway must not send
+    # packets with public service source addresses back into HAPP.
+    desired_routes = [
+        {"dst": "default", "type": "unreachable", "metric": 32760},
+        {"dst": str(network), "dev": config.interface, "metric": 100},
+        {"dst": "fe80::/64", "dev": config.interface, "metric": 100},
+    ]
+    if gateway:
+        desired_routes.append({"dst": "default", "dev": config.interface,
+                               "gateway": gateway["gateway"], "metric": 100})
+
+    def matches(actual: dict[str, Any], wanted: dict[str, Any]) -> bool:
+        return all(actual.get(k, "unicast" if k == "type" else None) == v
+                   for k, v in wanted.items())
+
+    for route in desired_routes:
+        if any(matches(r, route) for r in table_routes):
+            continue
+        args = ["ip", "-6", "route", "replace", "table", DIRECT_TABLE]
+        if "type" in route:
+            args.append(route["type"])
+        args.append(route["dst"])
+        if "gateway" in route:
+            args.extend(["via", route["gateway"]])
+        if "dev" in route:
+            args.extend(["dev", route["dev"]])
+        args.extend(["metric", str(route["metric"]), "proto", DIRECT_PROTOCOL])
+        run(*args)
+
+    desired_rules = {(DIRECT_PRIORITY + i, src) for i, src in enumerate(sources)}
+    def rule_key(rule: dict[str, Any]) -> tuple[int, str]:
+        return int(rule["priority"]), str(ipaddress.IPv6Network(rule["src"]))
+
+    # Add replacements before removing the previous prefix's rules.
+    for priority, src in sorted(desired_rules):
+        if not any(rule_key(r) == (priority, src) for r in owned_rules):
+            run("ip", "-6", "rule", "add", "priority", str(priority), "from", src,
+                "table", DIRECT_TABLE, "protocol", DIRECT_PROTOCOL)
+    for rule in owned_rules:
+        if rule_key(rule) not in desired_rules:
+            delete_rule(rule)
+    for route in table_routes:
+        # A replace above already replaced any old route with the same key.
+        if any(r["dst"] == route["dst"] and r["metric"] == route.get("metric")
+               for r in desired_routes):
+            continue
+        args = ["ip", "-6", "route", "del", "table", DIRECT_TABLE]
+        if route.get("type", "unicast") != "unicast":
+            args.append(route["type"])
+        args.extend([route["dst"], "metric", str(route["metric"]),
+                     "proto", DIRECT_PROTOCOL])
+        run(*args)
+    if not gateway:
+        raise RuntimeError(f"no physical IPv6 default gateway on {config.interface}")
 
 
 def build_records(
@@ -646,6 +760,7 @@ def reconcile(
 
     # Never publish an address in DNS before the address exists locally.
     configure_networkmanager(config, records)
+    configure_direct_routing(config, network)
 
     pending_state = make_state(network, source_address, records)
     run_firewall_hook(config, pending_state)
@@ -693,6 +808,10 @@ def main(config_path: str) -> int:
             network, source_address = detect_prefix(config)
             prefix = str(network)
             now = time.time()
+
+            # Repair routes independently of DNS resync/cooldown, including a
+            # router change or HAPP restart while the prefix stays the same.
+            configure_direct_routing(config, network)
 
             if (
                 not force_reconcile

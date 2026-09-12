@@ -12,7 +12,7 @@ import {
   instructionAt,
   issueLabels,
   issueMessage,
-  number,
+  // number,
   optimizationDisplay,
   orientationGuidance,
   percent,
@@ -69,7 +69,7 @@ function Metrics({ plan }: { plan: PackingPlan }) {
 }
 
 function Issues({ plan }: { plan: PackingPlan }) {
-  const issues = plan.issues.filter((issue) => issue.code !== 'DEMO_STUB');
+  // const issues = plan.issues.filter((issue) => issue.code !== 'DEMO_STUB');
   return (
     <>
       {plan.unpacked_items.length > 0 && (
@@ -98,7 +98,7 @@ function Issues({ plan }: { plan: PackingPlan }) {
           </ul>
         </section>
       )}
-      {issues.length > 0 && (
+      {/*{issues.length > 0 && (
         <section className="issue-grid" aria-label="Причины и пояснения">
           {issues.map((issue, index) => (
             <article
@@ -113,47 +113,47 @@ function Issues({ plan }: { plan: PackingPlan }) {
             </article>
           ))}
         </section>
-      )}
+      )}*/}
     </>
   );
 }
 
-function InstructionDetails({ box, step }: { box: PackedBox; step: number }) {
-  const instruction = instructionAt(box, step);
-  const placement = getPlacement(box, step);
-  return (
-    <details className="technical-details" key={step}>
-      <summary>
-        {placement ? 'Точные координаты и инструкция сервера' : 'Инструкция сервера'}
-      </summary>
-      {placement && (
-        <dl>
-          <div>
-            <dt>От левой стенки (x)</dt>
-            <dd>{number(placement.position.x)} мм</dd>
-          </div>
-          <div>
-            <dt>От передней стенки (y)</dt>
-            <dd>{number(placement.position.y)} мм</dd>
-          </div>
-          <div>
-            <dt>От дна (z)</dt>
-            <dd>{number(placement.position.z)} мм</dd>
-          </div>
-          <div>
-            <dt>Размеры после поворота</dt>
-            <dd>{dimensions(placement.dimensions)}</dd>
-          </div>
-          <div>
-            <dt>Ориентация</dt>
-            <dd>{placement.orientation}</dd>
-          </div>
-        </dl>
-      )}
-      <p>{instruction?.message ?? 'Текст инструкции не получен от сервера.'}</p>
-    </details>
-  );
-}
+// function InstructionDetails({ box, step }: { box: PackedBox; step: number }) {
+//   const instruction = instructionAt(box, step);
+//   const placement = getPlacement(box, step);
+//   return (
+//     <details className="technical-details" key={step}>
+//       <summary>
+//         {placement ? 'Точные координаты и инструкция сервера' : 'Инструкция сервера'}
+//       </summary>
+//       {placement && (
+//         <dl>
+//           <div>
+//             <dt>От левой стенки (x)</dt>
+//             <dd>{number(placement.position.x)} мм</dd>
+//           </div>
+//           <div>
+//             <dt>От передней стенки (y)</dt>
+//             <dd>{number(placement.position.y)} мм</dd>
+//           </div>
+//           <div>
+//             <dt>От дна (z)</dt>
+//             <dd>{number(placement.position.z)} мм</dd>
+//           </div>
+//           <div>
+//             <dt>Размеры после поворота</dt>
+//             <dd>{dimensions(placement.dimensions)}</dd>
+//           </div>
+//           <div>
+//             <dt>Ориентация</dt>
+//             <dd>{placement.orientation}</dd>
+//           </div>
+//         </dl>
+//       )}
+//       <p>{instruction?.message ?? 'Текст инструкции не получен от сервера.'}</p>
+//     </details>
+//   );
+// }
 
 function BoxWorkspace({
   box,
@@ -327,7 +327,7 @@ function BoxWorkspace({
             </p>
           )}
         </div>
-        <InstructionDetails box={box} step={step} />
+        {/*<InstructionDetails box={box} step={step} />*/}
         <div className="step-controls">
           <button
             className="secondary-button"
@@ -361,7 +361,7 @@ function BoxWorkspace({
         >
           {playing ? 'Ⅱ Приостановить показ' : '▷ Автопоказ шагов'}
         </button>
-        <details className="step-list">
+        {/*<details className="step-list">
           <summary>Все шаги этой коробки</summary>
           <ol>
             {box.instructions.map((item) => (
@@ -381,7 +381,7 @@ function BoxWorkspace({
               </li>
             ))}
           </ol>
-        </details>
+        </details>*/}
       </section>
     </div>
   );
@@ -507,9 +507,9 @@ export function PackingResultView({
       <div className="result-screen screen-only">
         <div className="page-heading">
           <div>
-            <span className="eyebrow">ЗАКАЗ {orderId}</span>
-            <h1>План упаковки</h1>
-            <p>Одна коробка за другой. Каждый товар на своём месте.</p>
+            {/*<span className="eyebrow">ЗАКАЗ {orderId}</span>*/}
+            <h1>Заказ {orderId}</h1>
+            {/*<p>Одна коробка за другой. Каждый товар на своём месте.</p>*/}
           </div>
           <div className="heading-actions">
             {box && (
@@ -532,6 +532,9 @@ export function PackingResultView({
             </button>
           </div>
         </div>
+        
+        <Issues plan={plan} />
+
         {stale && (
           <div className="notice notice-warning" role="status">
             <strong>Данные заказа изменились.</strong>
@@ -565,7 +568,7 @@ export function PackingResultView({
         </section>
         <section className={`optimization-summary optimization-${optimization.tone}`} aria-label="Алгоритм и качество решения">
           <div>
-            <span className="eyebrow">ВЫБРАНО: {optimization.requested}</span>
+            {/*<span className="eyebrow">ВЫБРАНО: {optimization.requested}</span>*/}
             <strong>Рассчитано: {optimization.actual}</strong>
           </div>
           <div>
@@ -695,7 +698,7 @@ export function PackingResultView({
             </button>
           </div>
         )}
-        <Issues plan={plan} />
+        
         <div className="result-footnote">
           Вес указан без тары. Расчёт не списывает остатки коробок.
         </div>

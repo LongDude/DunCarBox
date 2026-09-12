@@ -299,7 +299,7 @@ function Workspace({
             Каталог коробок
           </button>
         </nav>
-        <span className="workspace-label">DUN / PACK STATION</span>
+        {/*<span className="workspace-label">DUN / PACK STATION</span>*/}
       </div>
       <main id="main">
         <div
@@ -501,9 +501,9 @@ function Workspace({
                     {loading ? 'Рассчитываем…' : 'Рассчитать упаковку'}
                     <span aria-hidden="true">→</span>
                   </button>
-                  <p className="summary-note">
+                  {/*<p className="summary-note">
                     Вы получите выбор коробок, 3D-схему и инструкцию для каждого товара.
-                  </p>
+                  </p>*/}
                 </aside>
               </div>
               {Object.keys(errors).length > 0 && (

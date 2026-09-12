@@ -248,7 +248,7 @@ main {
   justify-content: space-between;
   align-items: center;
   gap: 24px;
-  margin: 29px 0 30px;
+  margin: 8px 0 8px;
 }
 .eyebrow {
   font-size: 9px;
@@ -540,7 +540,7 @@ main {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr);
   gap: 16px;
-  margin: 16px 0 22px;
+  margin: 12px 0 16px;
   padding: 18px 20px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1203,7 +1203,7 @@ main {
   color: #a3714c;
 }
 .unpacked-panel {
-  margin-top: 25px;
+  margin-top: 16px 0 16px;
   background: #fffaf2;
   border: 1px solid #eadbbe;
   border-radius: 9px;
@@ -1866,7 +1866,7 @@ main {
 }
 /* Keep the packing scene and operator actions close to the plan summary. */
 .result-screen .page-heading {
-  margin: 8px 0 18px;
+  margin: 8px 0 8px;
 }
 .result-screen .page-heading h1 {
   font-size: 30px;

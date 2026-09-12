@@ -48,7 +48,18 @@ Docker Compose остаётся способом запуска для разр�
 
 ## Локальная разработка
 
-Нужны Python 3.12+, [uv](https://docs.astral.sh/uv/getting-started/installation/), Node.js 24 с npm и работающий PostgreSQL 17. Из корня репозитория можно запустить только базу в Docker:
+Для полностью контейнерного dev-запуска нужны только Docker и Docker Compose.
+Frontend работает через Vite с hot-swap исходников, backend — с `--reload`;
+все порты привязаны к localhost:
+
+```sh
+make dev-up
+# http://localhost:5173
+make dev-logs
+make dev-down
+```
+
+Для запуска отдельных процессов на хосте нужны Python 3.12+, [uv](https://docs.astral.sh/uv/getting-started/installation/), Node.js 24 с npm и работающий PostgreSQL 17. Из корня репозитория можно запустить только базу в Docker:
 
 ```sh
 docker compose up -d --wait db

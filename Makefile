@@ -12,8 +12,9 @@ export DNS_SERVER ?= 1.1.1.1
 export CERT_MANAGER_VERSION ?= v1.21.2
 
 OPS = $(PYTHON) infra/scripts/operations.py
+DEV_COMPOSE = docker compose -f docker-compose.dev.yml
 
-.PHONY: help configure init cluster-init images image-backend image-frontend \
+.PHONY: help dev-up dev-down dev-restart dev-logs dev-status configure init cluster-init images image-backend image-frontend \
  image-build-backend image-build-frontend image-push-backend image-push-frontend \
  image-tags plan apply deploy status ssl-install ssl-token ssl-issue ssl-import ssl-check \
  ddns-install ddns-start ddns-stop ddns-restart ddns-enable ddns-disable ddns-status ddns-logs \
@@ -21,6 +22,16 @@ OPS = $(PYTHON) infra/scripts/operations.py
 
 help: ## Список команд и основных сценариев
 	@$(OPS) help
+dev-up: ## Запустить локальный контейнерный dev-контур с hot-swap frontend
+	$(DEV_COMPOSE) up --build -d
+dev-down: ## Остановить локальный контейнерный dev-контур
+	$(DEV_COMPOSE) down
+dev-restart: ## Перезапустить локальный контейнерный dev-контур
+	$(DEV_COMPOSE) up --build -d
+dev-logs: ## Показать логи локального dev-контура
+	$(DEV_COMPOSE) logs -f backend frontend
+dev-status: ## Показать состояние локальных dev-контейнеров
+	$(DEV_COMPOSE) ps
 configure: ## Настроить локальный пароль PostgreSQL, если он ещё не задан
 	@$(OPS) configure
 init: ## Первый запуск: кластер, образы, cert-manager, сертификат и приложение

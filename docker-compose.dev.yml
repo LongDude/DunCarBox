@@ -1,0 +1,70 @@
+name: duncarbox-dev
+
+# Separate local development stack. Production compose remains unchanged.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-duncarbox}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-duncarbox}
+      POSTGRES_DB: ${POSTGRES_DB:-duncarbox}
+    ports:
+      - "127.0.0.1:${DUNCARBOX_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      DUNCARBOX_DATABASE_URL: postgresql://db:5432
+      PGUSER: ${POSTGRES_USER:-duncarbox}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-duncarbox}
+      PGDATABASE: ${POSTGRES_DB:-duncarbox}
+      DUNCARBOX_DEMO_DIR: /app/demo
+      DUNCARBOX_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "127.0.0.1:${DUNCARBOX_BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend/app:/app/backend/app:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app/frontend
+    command:
+      - sh
+      - -ec
+      - >-
+        if [ ! -x node_modules/.bin/vite ]; then npm ci; fi;
+        npm run dev -- --host 0.0.0.0
+    environment:
+      DUNCARBOX_API_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend:/app/frontend
+      - frontend_node_modules:/app/frontend/node_modules
+    ports:
+      - "127.0.0.1:${DUNCARBOX_DEV_FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_dev_data:
+  frontend_node_modules:

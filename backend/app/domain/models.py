@@ -5,6 +5,7 @@ from typing import Literal
 
 Orientation = Literal["LWH", "LHW", "WLH", "WHL", "HLW", "HWL"]
 PackingStatus = Literal["success", "partial", "impossible"]
+PackingAlgorithm = Literal["heuristic", "z3"]
 IssueCode = Literal[
     "ITEM_TOO_LARGE",
     "ITEM_TOO_HEAVY",
@@ -144,6 +145,9 @@ class PackingAlternative:
 class PackingOptions:
     include_alternatives: bool = True
     max_alternatives: int = 3
+    algorithm: PackingAlgorithm = "heuristic"
+    solver_timeout_ms: int = 10_000
+    solver_workers: int = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +155,15 @@ class PackingRequest:
     boxes: tuple[BoxType, ...]
     products: tuple[Product, ...]
     options: PackingOptions = field(default_factory=PackingOptions)
+
+
+@dataclass(frozen=True, slots=True)
+class OptimizationInfo:
+    status: Literal["optimal", "feasible", "fallback"]
+    reason: Literal["completed", "time_limit", "size_limit", "solver_error"]
+    workers: int
+    time_limit_ms: int
+    support_ratio: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,3 +175,4 @@ class PackingResult:
     issues: tuple[PackingIssue, ...] = ()
     alternatives: tuple[PackingAlternative, ...] = ()
     algorithm_version: str = "demo-stub-v1"
+    optimization: OptimizationInfo | None = None

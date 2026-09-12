@@ -5,13 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "duncarbox-backend"
 version = "0.1.0"
-description = "Intelligent order packing service — foundation"
+description = "Order packing with heuristic and Z3 optimization engines"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1",
   "pydantic>=2.10,<3",
   "psycopg[binary]>=3.2,<4",
   "uvicorn[standard]>=0.34,<1",
+  "z3-solver>=4.15,<5",
 ]
 
 [dependency-groups]
@@ -23,6 +24,7 @@ packages = ["app"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["stress: explicit opt-in for expensive packing workloads"]
 
 [tool.ruff]
 target-version = "py312"

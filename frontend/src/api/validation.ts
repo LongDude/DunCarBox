@@ -125,7 +125,11 @@ export function validateRequest(value: unknown): FieldErrors {
     if (!isRecord(value.options)) errors.options = 'Некорректные настройки расчёта.';
     else {
       const optionErrors: FieldErrors = {};
-      unknownFields(value.options, ['include_alternatives', 'max_alternatives'], optionErrors);
+      unknownFields(
+        value.options,
+        ['include_alternatives', 'max_alternatives', 'algorithm', 'solver_timeout_ms', 'solver_workers'],
+        optionErrors,
+      );
       if (
         value.options.include_alternatives !== undefined &&
         typeof value.options.include_alternatives !== 'boolean'
@@ -135,6 +139,20 @@ export function validateRequest(value: unknown): FieldErrors {
       if (value.options.max_alternatives !== undefined) {
         const error = numberError(value.options.max_alternatives, 0, 5);
         if (error) optionErrors.max_alternatives = error;
+      }
+      if (
+        value.options.algorithm !== undefined &&
+        value.options.algorithm !== 'heuristic' &&
+        value.options.algorithm !== 'z3'
+      ) optionErrors.algorithm = 'Выберите эвристику или оптимизатор Z3.';
+      for (const [field, min, max] of [
+        ['solver_timeout_ms', 1_000, 60_000],
+        ['solver_workers', 1, 8],
+      ] as const) {
+        if (value.options[field] !== undefined) {
+          const error = numberError(value.options[field], min, max);
+          if (error) optionErrors[field] = error;
+        }
       }
       for (const [field, message] of Object.entries(optionErrors))
         errors[`options.${field}`] = message;
@@ -176,6 +194,9 @@ export function fieldLabel(field: string): string {
     options: 'Настройки',
     include_alternatives: 'Альтернативные планы',
     max_alternatives: 'Количество альтернатив',
+    algorithm: 'Алгоритм расчёта',
+    solver_timeout_ms: 'Лимит поиска Z3, мс',
+    solver_workers: 'Параллельные процессы Z3',
   };
   if ((path[0] === 'products' || path[0] === 'boxes') && /^\d+$/.test(path[1] ?? '')) {
     return `${path[0] === 'products' ? 'Товар' : 'Коробка'} ${Number(path[1]) + 1}${path[2] ? ` · ${labels[path[2]] ?? 'Поле'}` : ''}`;
@@ -185,6 +206,9 @@ export function fieldLabel(field: string): string {
 
 export function apiErrorDetailMessage(detail: ApiErrorDetail): string {
   if (/[а-яё]/i.test(detail.message)) return detail.message;
+  if (detail.field.endsWith('solver_timeout_ms')) return 'Лимит поиска: от 1 до 60 секунд (целое число миллисекунд).';
+  if (detail.field.endsWith('solver_workers')) return 'Укажите целое число процессов от 1 до 8.';
+  if (detail.field.endsWith('algorithm')) return 'Выберите эвристику или оптимизатор Z3.';
   const labels: Record<string, string> = {
     missing: 'Заполните поле.',
     int_type: 'Введите целое число.',

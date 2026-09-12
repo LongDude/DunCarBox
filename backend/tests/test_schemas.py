@@ -59,6 +59,9 @@ def test_default_options_and_boolean_values(order: dict) -> None:
     result = PackingRequestSchema.model_validate(order).to_domain()
     assert result.options.include_alternatives is True
     assert result.options.max_alternatives == 3
+    assert result.options.algorithm == "heuristic"
+    assert result.options.solver_timeout_ms == 10_000
+    assert result.options.solver_workers == 4
     assert result.products[0].allow_rotation is True
 
 
@@ -77,6 +80,15 @@ def test_zero_stock_and_empty_boxes_are_valid_domain_inputs(order: dict) -> None
         {"max_alternatives": True},
         {"include_alternatives": 1},
         {"unknown": True},
+        {"algorithm": "unknown"},
+        {"algorithm": 2},
+        {"solver_timeout_ms": 0},
+        {"solver_timeout_ms": 60_001},
+        {"solver_timeout_ms": True},
+        {"solver_timeout_ms": "1000"},
+        {"solver_workers": 0},
+        {"solver_workers": 9},
+        {"solver_workers": 2.5},
     ],
 )
 def test_invalid_options(client: TestClient, order: dict, options: dict) -> None:

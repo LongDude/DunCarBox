@@ -19,9 +19,10 @@ JSON использует snake_case. Неизвестные поля входа
   `dimensions={length:product.width,width:product.length,height:product.height}`.
 - Если `allow_rotation=false`, допустима только `LWH`. Если true — уникальные
   перестановки, максимум 6; при одинаковых размерах первая по указанному порядку.
-- Геометрия ортогональная. Товар стоит на дне или имеет опору минимум под 80%
-  площади основания от ранее уложенных товаров. Порог задаётся EngineOptions
-  при создании ядра и не является полем HTTP v1. Центр масс, хрупкость,
+- Геометрия ортогональная. Для `heuristic` товар стоит на дне или имеет опору
+  минимум под 80% площади основания от ранее уложенных товаров. Для `z3`, включая
+  его резервную эвристику, требуется 100% опоры; несколько товаров могут совместно
+  поддерживать основание. Порог не является настройкой HTTP v1. Центр масс, хрупкость,
   нагрузки, зазоры и траектория загрузки не моделируются; доля опоры не доказывает
   механическую устойчивость всей укладки.
 
@@ -31,7 +32,7 @@ JSON использует snake_case. Неизвестные поля входа
 |---|---|
 | BoxType | id, name, length, width, height, max_weight, available_count |
 | Product | id, name, length, width, height, weight, quantity, allow_rotation=true |
-| PackingOptions | include_alternatives=true, max_alternatives=3 (0..5) |
+| PackingOptions | include_alternatives=true, max_alternatives=3 (0..5), algorithm="heuristic" (`heuristic/z3`), solver_timeout_ms=10000 (1000..60000), solver_workers=4 (1..8) |
 | PackingRequest | boxes: BoxType[], products: Product[], options: PackingOptions={} |
 
 ID: `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`, уникален внутри своего массива.
@@ -42,6 +43,12 @@ available_count: 0..10000; quantity: 1..1000. Не более 100 типов к�
 булевы вместо чисел и неизвестные поля отклоняются с HTTP 422.
 `products` непустой; `boxes=[]` допустим как предметно невозможный заказ.
 Нулевой остаток допустим и должен учитываться движком, не удаляться из запроса.
+
+Новые настройки optional: старый запрос продолжает использовать прежнюю эвристику.
+solver_timeout_ms и solver_workers применяются только к Z3. Число процессов
+ограничивается доступными CPU и серверной конкуренцией; это верхняя граница запроса.
+Таймаут относится к фазе Z3 (включая запуск/построение модели); подготовка резервного
+плана и проверка/сериализация могут добавить время.
 
 ## Результат и доменные модели
 
@@ -59,7 +66,15 @@ available_count: 0..10000; quantity: 1..1000. Не более 100 типов к�
 | PackingIssue | code, severity (`info/warning/error`), message, item_instance_ids[], box_type_ids[] |
 | PackingInstructionStep | step, action, box_id, message, item_instance_id, product_id, position, dimensions, orientation |
 | PackingAlternative | id, description, status, metrics, packed_boxes[], unpacked_items[], issues[] |
-| PackingResult | status, metrics, packed_boxes[], unpacked_items[], issues[], alternatives[], algorithm_version |
+| PackingResult | status, metrics, packed_boxes[], unpacked_items[], issues[], alternatives[], algorithm_version, optimization=null |
+| OptimizationInfo | status (`optimal/feasible/fallback`), reason (`completed/time_limit/size_limit/solver_error`), workers (0..8), time_limit_ms, support_ratio=1.0 |
+
+`optimization` отсутствует в старых fixtures или равно null у обычной эвристики.
+При выборе Z3 оно обязательно: `optimal` означает доказанный оптимум **основного**
+плана по четырём целям Z3 и его модели полной опоры; `feasible` — допустимый план
+без доказательства оптимальности; `fallback` — явно обозначенный результат
+резервной эвристики с полной опорой. `workers=0` означает, что процессы Z3 не запускались.
+`success` описывает полноту упаковки, а не доказательство оптимальности.
 
 `fill_ratio` — доля 0..1, округление до 6 знаков; общий коэффициент взвешен по
 объёму коробок. Для нуля коробок равен 0. `total_weight` учитывает только уложенные
@@ -74,7 +89,7 @@ available_count: 0..10000; quantity: 1..1000. Не более 100 типов к�
 Коды issues: `ITEM_TOO_LARGE`, `ITEM_TOO_HEAVY`, `BOX_STOCK_EXHAUSTED`,
 `NO_BOX_TYPES`, `NO_FEASIBLE_PLACEMENT`, `PARTIAL_PACKING`, `SIMILAR_ALTERNATIVES`,
 `DEMO_STUB`. Причины объясняются по-русски. `NO_FEASIBLE_PLACEMENT` означает, что
-эвристика не нашла размещение; это не математическое доказательство невозможности.
+поиск не нашёл размещение; сам код не является доказательством невозможности.
 Каждая неуложенная единица должна присутствовать в `unpacked_items` и быть связана
 с объясняющим issue. Альтернативы — полноценные планы, без рекурсивных alternatives.
 Если альтернативы отключены или max_alternatives=0, возвращается пустой массив.
@@ -82,10 +97,12 @@ available_count: 0..10000; quantity: 1..1000. Не более 100 типов к�
 ## Инструкции и детерминизм
 
 - Единицы разворачиваются по product.id (лексикографически), затем unit_index численно.
-- Одинаковый ввод, включая options, и версия движка дают одинаковый JSON. Нет UUID,
+- Для `heuristic` одинаковый ввод и версия движка дают одинаковый JSON. Нет UUID,
   времени выполнения, timestamp, случайных цветов или случайного seed в результате.
-- Перестановка строк boxes/products не должна менять результат. Движок использует
-  стабильные критерии выбора и явно документирует tie-break в PACKING_ENGINE.md.
+- Вход обоих алгоритмов канонизируется по id. Для `heuristic` перестановка строк
+  boxes/products не меняет результат. Z3 с несколькими процессами и лимитом времени
+  может вернуть разные равнозначные размещения и разный прогресс поиска в зависимости
+  от CPU; побайтовый детерминизм для этого режима не обещается.
 - PackedBox упорядочены по порядку открытия; index для каждого типа начинается с 1.
 - placements упорядочены по step. step начинается с 1 и непрерывен внутри коробки.
 - instructions: шаг 0 `prepare_box`, шаги 1..N `place_item`, N+1 `close_box`.
@@ -122,6 +139,16 @@ POST /pack всегда получает явный snapshot boxes. Катало
 ограничений API. До 12 детерминированных стартов; до трёх найденных альтернатив,
 не более запрошенного max_alternatives. Отсутствие альтернатив допустимо.
 Результат не обязан повторять статические fixture-размещения.
+
+`PackingEngineDispatcher` выбирает этот алгоритм по умолчанию либо `Z3PackingEngine`
+при `options.algorithm="z3"`. `/health.engine` сохраняет версию default-алгоритма;
+фактический результат описывают `algorithm_version` и `optimization`.
+Z3 решает целочисленную модель: максимум количества упакованных единиц → максимум
+их объёма → минимум использованных коробок → минимум их суммарного объёма.
+Цены коробок в контракте нет. Полная модель ограничена 16 экземплярами и 64 слотами
+коробок (сумма `min(stock, item_count)` по совместимым типам); превышение возвращает `fallback/size_limit`,
+не ошибку валидации и не молчаливое отбрасывание лишних товаров.
+Ограничения и доказательство оптимальности подробнее в [Z3_ENGINE.md](Z3_ENGINE.md).
 
 **Автономный demo-режим frontend:** воспроизводит `demo/*.request.json` /
 `.response.json`, всегда показывает DEMO_STUB / demo-stub-v1. Изменённый

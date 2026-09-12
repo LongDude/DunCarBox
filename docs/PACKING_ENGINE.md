@@ -1,5 +1,8 @@
 # Packing Engine
 
+Этот документ описывает алгоритм 1 (`heuristic`). Выбор алгоритма 2 (`z3`), его
+полная опора, цели оптимизации и многопроцессный поиск — в [Z3_ENGINE.md](Z3_ENGINE.md).
+
 Реализован `app.packing.engine.DeterministicPackingEngine`, версия
 `candidate-packing-v1`. Ядро использует стандартную библиотеку Python и domain
 dataclasses, без HTTP, PostgreSQL, UI, случайности и внешнего packing solver.
@@ -24,7 +27,8 @@ strict_engine = DeterministicPackingEngine(
 Протокол остаётся `pack(PackingRequest) -> PackingResult`. Ядро возвращает
 `instructions=()`; существующий PackingService генерирует русские инструкции
 для основного плана и альтернатив. Default app factory использует
-`DeterministicPackingEngine()`. `create_app(settings, engine=engine)` сохраняет
+`PackingEngineDispatcher`, выбирающий `DeterministicPackingEngine()` по умолчанию
+или Z3 по `request.options.algorithm`. `create_app(settings, engine=engine)` сохраняет
 явную dependency injection для тестов и настройки ядра.
 
 ## Алгоритм
@@ -230,9 +234,10 @@ Benchmark: четыре demo-запроса, многоуровневые куб
 
 ## Решения финальной интеграции по контракту
 
-Публичные DTO не изменены. Согласованы следующие границы MVP:
+DTO размещений сохранены. Options и metadata результата расширены обратно
+совместимо при добавлении Z3. Согласованы следующие границы MVP:
 
-1. PackingOptions содержит только alternatives. Если порог нужен каждому HTTP
+1. PackingOptions содержит alternatives, выбор алгоритма и лимиты Z3. Если порог опоры нужен каждому HTTP
    запросу, согласованно добавить min_support_ratio=0.8 в domain/schema/TypeScript.
    Пока он задаётся внутренним EngineOptions при создании ядра.
 2. CONTRACTS уточнён: реализована минимальная опорная площадь 80%, полноценной

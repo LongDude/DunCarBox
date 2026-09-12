@@ -22,6 +22,40 @@ export const weight = (grams: number) =>
 export const dimensions = (value: Dimensions) =>
   `${number(value.length)} × ${number(value.width)} × ${number(value.height)} мм`;
 
+export function optimizationDisplay(result: PackingResult, request: PackingRequest, alternative = false) {
+  const requested = request.options?.algorithm === 'z3' ? 'Оптимизатор Z3' : 'Быстрая эвристика';
+  if (result.algorithm_version.startsWith('demo-stub') || result.issues.some((issue) => issue.code === 'DEMO_STUB')) {
+    return { requested: 'Готовый пример', actual: 'Демонстрационный план', title: 'Без нового расчёта', detail: 'Раскладка загружена из готового сценария.', tone: 'demo' };
+  }
+  const info = result.optimization;
+  const actual = info?.status === 'fallback' || result.algorithm_version.startsWith('candidate-packing')
+    ? 'Быстрая эвристика'
+    : result.algorithm_version.startsWith('z3-packing') ? 'Оптимизатор Z3' : result.algorithm_version;
+  if (!info) return {
+    requested, actual, title: 'Оптимум не доказан',
+    detail: 'Показан лучший найденный план. Гарантии математического оптимума нет.', tone: 'info',
+  };
+  const reason = {
+    completed: 'Поиск завершён.',
+    time_limit: 'Достигнут лимит времени поиска.',
+    size_limit: 'Заказ превышает лимит размера модели Z3.',
+    solver_error: 'Оптимизатор Z3 не смог завершить расчёт.',
+  }[info.reason];
+  const settings = `Опора ${percent(info.support_ratio)} · процессов: ${info.workers} · лимит поиска: ${number(info.time_limit_ms / 1_000)} с.`;
+  if (info.status === 'fallback') return {
+    requested, actual, title: 'Использована резервная эвристика',
+    detail: `${reason} Оптимум не доказан. ${settings}`, tone: 'warning',
+  };
+  return {
+    requested, actual,
+    title: info.status === 'optimal'
+      ? alternative ? 'Оптимум основного плана доказан' : 'Оптимум доказан в модели Z3'
+      : 'Найден допустимый план, оптимум не доказан',
+    detail: `${reason} ${info.status === 'optimal' ? 'Доказательство относится к ограничениям и целям модели Z3. ' : ''}${alternative ? 'Статус поиска относится к основному плану, а не к выбранной альтернативе. ' : ''}${settings}`,
+    tone: info.status === 'optimal' ? 'success' : 'info',
+  };
+}
+
 export const issueLabels: Record<PackingIssue['code'], string> = {
   ITEM_TOO_LARGE: 'Товар не помещается',
   ITEM_TOO_HEAVY: 'Превышен допустимый вес',

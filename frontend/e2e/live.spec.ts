@@ -3,27 +3,38 @@ import type { PackingResult } from '../src/types/packing';
 
 test.skip(!process.env.DUNCARBOX_LIVE_E2E, 'Requires real API and PostgreSQL');
 
+for (const algorithm of ['heuristic', 'z3'] as const) {
 for (const [scenario, status, count] of [
   ['simple-order', 'success', 2],
   ['multiple-boxes', 'success', 6],
   ['oversized', 'impossible', 0],
   ['stock-shortage', 'partial', 1],
 ] as const) {
-  test(`live API: ${scenario}, server instructions and placements`, async ({ page, request }) => {
+  test(`live API ${algorithm}: ${scenario}, server instructions and placements`, async ({ page, request }) => {
     const health = await request.get('/api/v1/health');
     expect((await health.json()).engine).toBe('candidate-packing-v1');
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto('/?mode=api');
+    await page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true }).selectOption(algorithm);
+    if (algorithm === 'z3') {
+      await page.getByLabel('Параллельные процессы', { exact: true }).fill('2');
+    }
     await page.getByLabel('Демо-сценарий').selectOption(scenario);
     await page.getByRole('button', { name: 'Загрузить демо-заказ', exact: true }).click();
     await expect(page.getByLabel('Номер заказа')).toHaveValue(`ДЕМО-${scenario}`);
+    await expect(page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true })).toHaveValue(algorithm);
     const response = page.waitForResponse(r => r.url().endsWith('/api/v1/pack') && r.request().method() === 'POST');
     await page.getByRole('button', { name: 'Рассчитать упаковку', exact: true }).click();
     const result = await (await response).json() as PackingResult;
     expect(result.status).toBe(status);
     expect(result.metrics.packed_items).toBe(count);
-    expect(result.algorithm_version).toBe('candidate-packing-v1');
+    expect(result.algorithm_version).toBe(algorithm === 'z3' ? 'z3-packing-v1' : 'candidate-packing-v1');
+    if (algorithm === 'z3') {
+      expect(result.optimization?.support_ratio).toBe(1);
+      expect(result.optimization?.reason).toBe('completed');
+      expect(result.optimization?.status).toBe('optimal');
+    }
     expect(result.issues.some(issue => issue.code === 'DEMO_STUB')).toBe(false);
     await expect(page.getByRole('heading', { name: 'План упаковки', exact: true })).toBeVisible();
     for (const plan of [result, ...result.alternatives]) {
@@ -46,6 +57,7 @@ for (const [scenario, status, count] of [
     expect(errors).toEqual([]);
   });
 }
+}
 
 test('live API: changed quantity calculates a new plan', async ({ page }) => {
   await page.goto('/?mode=api');
@@ -59,6 +71,25 @@ test('live API: changed quantity calculates a new plan', async ({ page }) => {
   expect(result.status).toBe('success');
   expect(result.metrics.packed_items).toBe(3);
   await expect(page.locator('.status-badge')).toContainText('Заказ упакован');
+});
+
+test('live Z3: model limit shows fallback and accounts for the whole order', async ({ page }) => {
+  await page.goto('/?mode=api');
+  await page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true }).selectOption('z3');
+  await page.getByLabel('Демо-сценарий').selectOption('simple-order');
+  await page.getByRole('button', { name: 'Загрузить демо-заказ', exact: true }).click();
+  await expect(page.getByLabel('Номер заказа')).toHaveValue('ДЕМО-simple-order');
+  await page.getByLabel('Кол-во товара 1, шт.').fill('17');
+  const response = page.waitForResponse(r => r.url().endsWith('/api/v1/pack'));
+  await page.getByRole('button', { name: 'Рассчитать упаковку', exact: true }).click();
+  const result = await (await response).json() as PackingResult;
+  expect(result.metrics.total_items).toBe(17);
+  expect(result.metrics.packed_items + result.metrics.unpacked_items).toBe(17);
+  expect(result.optimization).toMatchObject({ status: 'fallback', reason: 'size_limit', workers: 0, support_ratio: 1 });
+  const summary = page.getByRole('region', { name: 'Алгоритм и качество решения' });
+  await expect(summary).toContainText('Использована резервная эвристика');
+  await expect(summary).toContainText('Оптимум не доказан');
+  await expect(summary).toContainText('Рассчитано: Быстрая эвристика');
 });
 
 test('live PostgreSQL catalog: create, reload, update and delete', async ({ page, request }) => {

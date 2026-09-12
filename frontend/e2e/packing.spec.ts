@@ -75,6 +75,42 @@ async function mockApi(page: Page, pack: (route: Route) => Promise<void>) {
   });
 }
 
+test('Z3 settings survive demo mode and are exported with an unproven result', async ({ page }) => {
+  let submitted: PackingRequest | undefined;
+  const result: PackingResult = {
+    ...structuredClone(simpleResult),
+    algorithm_version: 'z3-packing-v1',
+    issues: simpleResult.issues.filter(issue => issue.code !== 'DEMO_STUB'),
+    optimization: { status: 'feasible', reason: 'time_limit', workers: 2, time_limit_ms: 3250, support_ratio: 1 },
+  };
+  await mockApi(page, async route => {
+    submitted = route.request().postDataJSON() as PackingRequest;
+    await route.fulfill({ json: result });
+  });
+  await loadOrder(page, 'simple-order', 'api');
+  await page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true }).selectOption('z3');
+  await page.getByLabel('Лимит поиска, с', { exact: true }).fill('3.25');
+  await page.getByLabel('Параллельные процессы', { exact: true }).fill('8');
+  await page.getByLabel('Источник данных').selectOption('demo');
+  await expect(page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true })).toHaveValue('demo');
+  await page.getByLabel('Источник данных').selectOption('api');
+  await expect(page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true })).toHaveValue('z3');
+  await page.getByLabel('Демо-сценарий').selectOption('simple-order');
+  await page.getByRole('button', { name: 'Загрузить демо-заказ', exact: true }).click();
+  await expect(page.getByLabel('Номер заказа')).toHaveValue('ДЕМО-simple-order');
+  await calculate(page);
+  expect(submitted?.options).toMatchObject({ algorithm: 'z3', solver_timeout_ms: 3250, solver_workers: 8 });
+  const summary = page.getByRole('region', { name: 'Алгоритм и качество решения' });
+  await expect(summary).toContainText('Найден допустимый план, оптимум не доказан');
+  await expect(summary).toContainText('Достигнут лимит времени поиска');
+  const exported = await jsonExport(page);
+  expect(exported.request.options).toMatchObject(submitted!.options!);
+  expect(exported.result.optimization).toEqual(result.optimization);
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.locator('.print-instructions')).toContainText('Найден допустимый план, оптимум не доказан');
+});
+
 test('multiple boxes: 3D, step filtering, layer view, show all and box reset', async ({ page }) => {
   const runtimeErrors: string[] = [];
   page.on('pageerror', (error) => runtimeErrors.push(error.message));

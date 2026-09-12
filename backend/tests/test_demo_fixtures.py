@@ -59,7 +59,8 @@ def test_fixture_schema_and_stub_disclosure(
     request, response = snapshot
     PackingRequestSchema.model_validate(request)
     validated = PackingResultSchema.model_validate(response)
-    assert validated.model_dump(mode="json") == response
+    # Legacy demo snapshots intentionally omit optional solver metadata.
+    assert validated.model_dump(mode="json", exclude_unset=True) == response
     assert response["algorithm_version"] == "demo-stub-v1"
     assert any(issue["code"] == "DEMO_STUB" for issue in response["issues"])
     assert response["alternatives"] == []

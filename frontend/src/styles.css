@@ -505,6 +505,66 @@ main {
   color: #819074;
   margin-top: 14px;
 }
+.algorithm-settings {
+  min-width: 0;
+  margin: 18px 0;
+  padding: 0;
+  border: 0;
+}
+.algorithm-settings legend {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.algorithm-settings select,
+.algorithm-settings input {
+  width: 100%;
+  min-width: 0;
+}
+.algorithm-settings .summary-note {
+  margin: 8px 0 0;
+  text-align: left;
+}
+.solver-settings {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.solver-settings label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.optimization-summary {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr);
+  gap: 16px;
+  margin: 16px 0 22px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+  font-size: 13px;
+}
+.optimization-summary .eyebrow {
+  display: block;
+  margin-bottom: 8px;
+}
+.optimization-summary p {
+  margin: 6px 0 0;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.optimization-warning {
+  border-color: #e0b95e;
+  background: #fffaf0;
+}
+@media (max-width: 600px) {
+  .optimization-summary {
+    grid-template-columns: 1fr;
+  }
+}
 .available-boxes {
   margin-top: 22px;
 }
@@ -1347,16 +1407,20 @@ main {
   }
   .order-summary .checkbox-label {
     grid-column: 2;
-    grid-row: 2;
+    grid-row: 4;
+  }
+  .order-summary .algorithm-settings {
+    grid-column: 2;
+    grid-row: 1 / 4;
   }
   .order-summary .calculate-button {
     grid-column: 2;
-    grid-row: 3;
+    grid-row: 5;
     align-self: center;
   }
-  .order-summary .summary-note {
+  .order-summary > .summary-note {
     grid-column: 2;
-    grid-row: 4;
+    grid-row: 6;
   }
   .packing-workspace {
     grid-template-columns: minmax(0, 1fr) 325px;
@@ -1600,8 +1664,9 @@ main {
     grid-row: auto;
   }
   .order-summary .checkbox-label,
+  .order-summary .algorithm-settings,
   .order-summary .calculate-button,
-  .order-summary .summary-note {
+  .order-summary > .summary-note {
     grid-column: 1;
     grid-row: auto;
   }

@@ -6,6 +6,14 @@ import { apiErrorDetailMessage, apiErrorFields, fieldLabel, validateBox, validat
 const request = () => structuredClone(demoFixtures['simple-order'].request);
 
 describe('contract input validation', () => {
+  it('validates optimizer options, integer boundaries and readable backend errors', () => {
+    expect(validateRequest({ ...request(), options: { algorithm: 'z3', solver_timeout_ms: 1000, solver_workers: 8 } })).toEqual({});
+    for (const [field, values] of Object.entries({ algorithm: ['other', null], solver_timeout_ms: [999, 60001, 1000.1, true, '1000'], solver_workers: [0, 9, 1.5, true, '4'] })) {
+      for (const value of values) expect(validateRequest({ ...request(), options: { [field]: value } })[`options.${field}`]).toBeTruthy();
+    }
+    expect(fieldLabel('body.options.solver_workers')).toBe('Параллельные процессы Z3');
+    expect(apiErrorDetailMessage({ field: 'body.options.solver_timeout_ms', message: 'Input should be greater than or equal to 1000', type: 'greater_than_equal' })).toContain('от 1 до 60 секунд');
+  });
   it('allows empty box snapshots and preserves zero stock as valid domain constraints', () => {
     const input = request();
     input.boxes[0].available_count = 0;

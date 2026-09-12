@@ -10,6 +10,8 @@ import { BoxIcon } from '../components/BoxIcon';
 import { ErrorNotice, Loading } from '../components/Feedback';
 import { BoxCatalog } from '../features/catalog/BoxCatalog';
 import { createProduct, ProductEditor } from '../features/order/ProductEditor';
+import { AlgorithmSelector } from '../features/order/AlgorithmSelector';
+import { defaultAlgorithmSettings, readAlgorithmSettings, saveAlgorithmSettings } from '../features/order/algorithmSettings';
 import { PackingResultView } from '../features/packing/PackingResultView';
 import { dimensions, weight } from '../features/packing/presentation';
 import type { BoxType, PackingRequest, PackingResult, Product } from '../types/packing';
@@ -46,6 +48,9 @@ function Workspace({
   const [selectedScenario, setSelectedScenario] = useState('multiple-boxes');
   const [orderId, setOrderId] = useState('ЗК-001');
   const [includeAlternatives, setIncludeAlternatives] = useState(true);
+  const [algorithmSettings, setAlgorithmSettings] = useState(() =>
+    mode === 'api' ? readAlgorithmSettings() : { ...defaultAlgorithmSettings },
+  );
   const [calculated, setCalculated] = useState<CalculatedOrder | null>(null);
   const [loading, setLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
@@ -61,7 +66,15 @@ function Workspace({
   const request: PackingRequest = {
     boxes,
     products,
-    options: { include_alternatives: includeAlternatives, max_alternatives: 3 },
+    options: {
+      include_alternatives: includeAlternatives,
+      max_alternatives: 3,
+      algorithm: mode === 'demo' ? 'heuristic' : algorithmSettings.algorithm,
+      ...(mode === 'api' && algorithmSettings.algorithm === 'z3' ? {
+        solver_timeout_ms: algorithmSettings.solver_timeout_ms,
+        solver_workers: algorithmSettings.solver_workers,
+      } : {}),
+    },
   };
   const normalizedRequest = {
     ...request,
@@ -440,6 +453,17 @@ function Workspace({
                       <dd>{boxes.reduce((sum, box) => sum + box.available_count, 0)} шт.</dd>
                     </div>
                   </dl>
+                  <AlgorithmSelector
+                    settings={algorithmSettings}
+                    demo={mode === 'demo'}
+                    disabled={loading || demoLoading}
+                    errors={errors}
+                    onChange={(settings) => {
+                      invalidate();
+                      setAlgorithmSettings(settings);
+                      if (mode === 'api') saveAlgorithmSettings(settings);
+                    }}
+                  />
                   <label className="checkbox-label">
                     <input
                       type="checkbox"

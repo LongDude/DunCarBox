@@ -17,6 +17,7 @@ import {
   issueLabels,
   issueMessage,
   orientationGuidance,
+  optimizationDisplay,
   percent,
   placementGuidance,
   planSteps,
@@ -32,6 +33,22 @@ const shortage = demoFixtures['stock-shortage'];
 const oversized = demoFixtures.oversized;
 const simpleBox = simple.response.packed_boxes[0];
 const first = simpleBox.placements[0];
+
+describe('honest optimizer result presentation', () => {
+  const result = { ...simple.response, issues: [], algorithm_version: 'z3-packing-v1' };
+  const request = { ...simple.request, options: { algorithm: 'z3' as const } };
+  const optimization = { status: 'optimal' as const, reason: 'completed' as const, workers: 4, time_limit_ms: 10000, support_ratio: 1 };
+  it('distinguishes fixture playback, heuristics, proven optima and selected alternatives', () => {
+    expect(optimizationDisplay(simple.response, simple.request).title).toBe('Без нового расчёта');
+    expect(optimizationDisplay({ ...result, algorithm_version: 'candidate-packing-v1' }, request)).toMatchObject({ actual: 'Быстрая эвристика', title: 'Оптимум не доказан' });
+    expect(optimizationDisplay({ ...result, optimization }, request).title).toBe('Оптимум доказан в модели Z3');
+    expect(optimizationDisplay({ ...result, optimization }, request, true).detail).toContain('не к выбранной альтернативе');
+  });
+  it('does not label a time-limited feasible plan or fallback as proven optimal', () => {
+    expect(optimizationDisplay({ ...result, optimization: { ...optimization, status: 'feasible', reason: 'time_limit' } }, request)).toMatchObject({ actual: 'Оптимизатор Z3', title: 'Найден допустимый план, оптимум не доказан', detail: expect.stringContaining('лимит времени') });
+    expect(optimizationDisplay({ ...result, optimization: { ...optimization, status: 'fallback', reason: 'size_limit', workers: 0 } }, request)).toMatchObject({ actual: 'Быстрая эвристика', requested: 'Оптимизатор Z3', title: 'Использована резервная эвристика', detail: expect.stringContaining('Оптимум не доказан') });
+  });
+});
 
 function issue(code: PackingIssue['code'], message = 'Объяснение сервера'): PackingIssue {
   return {

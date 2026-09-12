@@ -12,6 +12,7 @@ import {
   issueLabels,
   issueMessage,
   number,
+  optimizationDisplay,
   orientationGuidance,
   percent,
   placementGuidance,
@@ -389,17 +390,23 @@ function PrintInstructions({
   plan,
   request,
   orderId,
+  result,
+  alternative,
 }: {
   plan: PackingPlan;
   request: PackingRequest;
   orderId: string;
+  result: PackingResult;
+  alternative: boolean;
 }) {
+  const optimization = optimizationDisplay(result, request, alternative);
   return (
     <section className="print-instructions">
       <h1>DunCarBox · Инструкция по упаковке</h1>
       <p>
         Заказ {orderId} · {statusDisplay(plan.status, plan.issues).label}
       </p>
+      <p>Выбрано: {optimization.requested}. Рассчитано: {optimization.actual}. {optimization.title}. {optimization.detail}</p>
       <Metrics plan={plan} />
       {plan.packed_boxes.map((box, index) => (
         <article key={box.id}>
@@ -473,6 +480,7 @@ export function PackingResultView({
   const plan = selectPlan(result, selectedId);
   const box = plan.packed_boxes[boxIndex];
   const status = statusDisplay(plan.status, plan.issues);
+  const optimization = optimizationDisplay(result, request, selectedId !== null);
   const demo =
     result.issues.some((issue) => issue.code === 'DEMO_STUB') ||
     result.algorithm_version.startsWith('demo-stub');
@@ -533,6 +541,16 @@ export function PackingResultView({
             </span>
           </div>
           <Metrics plan={plan} />
+        </section>
+        <section className={`optimization-summary optimization-${optimization.tone}`} aria-label="Алгоритм и качество решения">
+          <div>
+            <span className="eyebrow">ВЫБРАНО: {optimization.requested}</span>
+            <strong>Рассчитано: {optimization.actual}</strong>
+          </div>
+          <div>
+            <strong>{optimization.title}</strong>
+            <p>{optimization.detail}</p>
+          </div>
         </section>
         {result.alternatives.length > 0 && (
           <details className="alternatives">
@@ -647,7 +665,7 @@ export function PackingResultView({
           Вес указан без тары. Расчёт не списывает остатки коробок.
         </div>
       </div>
-      <PrintInstructions plan={plan} request={request} orderId={orderId} />
+      <PrintInstructions plan={plan} request={request} orderId={orderId} result={result} alternative={selectedId !== null} />
     </>
   );
 }

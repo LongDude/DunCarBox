@@ -4,6 +4,6 @@ from app.domain.models import PackingRequest, PackingResult
 
 
 class PackingEngine(Protocol):
-    """A deterministic, side-effect-free packing operation; no HTTP or storage."""
+    """Packing without mutating the request or inventory; no HTTP or storage."""
 
     def pack(self, request: PackingRequest) -> PackingResult: ...

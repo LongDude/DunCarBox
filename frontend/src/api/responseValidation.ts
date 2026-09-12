@@ -21,6 +21,10 @@ const nullable =
   (guard: Guard): Guard =>
   (value) =>
     value === null || guard(value);
+const optional =
+  (guard: Guard): Guard =>
+  (value) =>
+    value === undefined || guard(value);
 const shape =
   (fields: Record<string, Guard>): Guard =>
   (value) =>
@@ -106,6 +110,13 @@ export const responseGuards = {
     ...plan,
     alternatives: arrayOf(shape({ ...plan, id: text, description: text })),
     algorithm_version: text,
+    optimization: optional(nullable(shape({
+      status: oneOf('optimal', 'feasible', 'fallback'),
+      reason: oneOf('completed', 'time_limit', 'size_limit', 'solver_error'),
+      workers: (value) => integer(value) && (value as number) <= 8,
+      time_limit_ms: (value) => integer(value) && (value as number) >= 1_000 && (value as number) <= 60_000,
+      support_ratio: ratio,
+    }))),
   }),
 };
 

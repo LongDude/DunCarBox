@@ -116,6 +116,19 @@ export interface PackingAlternative {
 export interface PackingOptions {
   include_alternatives?: boolean;
   max_alternatives?: number;
+  algorithm?: PackingAlgorithm;
+  solver_timeout_ms?: number;
+  solver_workers?: number;
+}
+
+export type PackingAlgorithm = 'heuristic' | 'z3';
+
+export interface PackingOptimization {
+  status: 'optimal' | 'feasible' | 'fallback';
+  reason: 'completed' | 'time_limit' | 'size_limit' | 'solver_error';
+  workers: number;
+  time_limit_ms: number;
+  support_ratio: number;
 }
 
 export interface PackingRequest {
@@ -132,6 +145,7 @@ export interface PackingResult {
   issues: PackingIssue[];
   alternatives: PackingAlternative[];
   algorithm_version: string;
+  optimization?: PackingOptimization | null;
 }
 
 export interface DemoScenario {

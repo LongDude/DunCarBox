@@ -47,6 +47,9 @@ class ProductSchema(ContractModel):
 class PackingOptionsSchema(ContractModel):
     include_alternatives: Annotated[bool, Field(strict=True)] = True
     max_alternatives: Annotated[int, Field(strict=True, ge=0, le=5)] = 3
+    algorithm: domain.PackingAlgorithm = "heuristic"
+    solver_timeout_ms: Annotated[int, Field(strict=True, ge=1000, le=60_000)] = 10_000
+    solver_workers: Annotated[int, Field(strict=True, ge=1, le=8)] = 4
 
 
 class PackingRequestSchema(ContractModel):
@@ -166,6 +169,14 @@ class PackingAlternativeSchema(ContractModel):
     issues: list[PackingIssueSchema]
 
 
+class OptimizationInfoSchema(ContractModel):
+    status: Literal["optimal", "feasible", "fallback"]
+    reason: Literal["completed", "time_limit", "size_limit", "solver_error"]
+    workers: Annotated[int, Field(strict=True, ge=0, le=8)]
+    time_limit_ms: PositiveInt
+    support_ratio: Ratio = 1.0
+
+
 class PackingResultSchema(ContractModel):
     status: domain.PackingStatus
     metrics: PackingMetricsSchema
@@ -174,3 +185,4 @@ class PackingResultSchema(ContractModel):
     issues: list[PackingIssueSchema]
     alternatives: list[PackingAlternativeSchema]
     algorithm_version: str
+    optimization: OptimizationInfoSchema | None = None

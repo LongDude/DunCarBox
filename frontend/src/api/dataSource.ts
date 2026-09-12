@@ -121,6 +121,13 @@ const fixtureBySignature = new Map(
 
 function packDemo(request: PackingRequest): PackingResult {
   assertValid(validateRequest(request));
+  if (request.options?.algorithm === 'z3') {
+    throw new ApiError(
+      'Z3 работает только на сервере. В режиме «Демо без сервера» доступны готовые планы без нового расчёта.',
+      'ENGINE_NOT_IMPLEMENTED',
+      503,
+    );
+  }
   const fixture = fixtureBySignature.get(requestSignature(request));
   if (!fixture) {
     throw new ApiError(

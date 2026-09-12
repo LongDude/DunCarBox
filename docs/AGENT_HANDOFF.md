@@ -3,16 +3,21 @@
 ## Completed
 
 - Финальная интеграция выполнена поверх текущих изменений агентов.
-- Default app factory использует DeterministicPackingEngine, версия candidate-packing-v1.
+- Default app factory использует PackingEngineDispatcher: heuristic → DeterministicPackingEngine
+  (candidate-packing-v1), z3 → Z3PackingEngine (z3-packing-v1).
   Произвольные валидные заказы действительно рассчитываются сервером.
 - PostgreSQL 17 — единственное серверное хранилище. CRUD, транзакционный seed,
   конкурентные запросы и сохранение после перезапуска проверены.
-- Реальный engine → PackingService → API → frontend работает с неизменёнными DTO.
+- Реальный engine → PackingService → API → frontend работает с общими DTO размещений.
   Инструкции главного плана и альтернатив совпадают с placements.
 - React MVP: формы заказа/каталога, 3D, слои, шаги, альтернативы, JSON, печать/PDF.
   Явный автономный demo-режим сохранён для показа без backend.
 - Production-образы собраны, PostgreSQL/backend/nginx запущены и healthy.
 - README, CONTRACTS, ARCHITECTURE, UX, PACKING_ENGINE и TASKS приведены к итоговому состоянию.
+- Добавлен Z3 на основе пользовательского test_code.py: совместная полная опора,
+  partial packing, четыре лексикографические цели, изолированный портфель процессов.
+- UI выбирает алгоритм, лимит 1–60 секунд и 1–8 процессов; показывает фактический
+  алгоритм, статус доказательства и резервный план. JSON/печать сохраняют metadata.
 
 ## In progress
 
@@ -22,7 +27,7 @@
 
 - Эвристика не гарантирует оптимум или полноту. Статус impossible означает ноль
   размещённых товаров; точная причина находится в issues.
-- Опора проверяется по площади (минимум 80%), без центра масс, нагрузок, хрупкости
+- Опора проверяется по площади (heuristic минимум 80%, Z3 и его резерв 100%), без центра масс, нагрузок, хрупкости
   или траектории внесения товара. Это не полная механическая модель.
 - Большие разнородные заказы и много типов коробок могут считаться долго.
   Серверный поиск синхронный. Клиент ждёт /pack до 120 секунд; отмена в браузере
@@ -36,8 +41,10 @@
 ## Contracts frozen
 
 - SOURCE OF TRUTH: [CONTRACTS.md](CONTRACTS.md), API v1.
-- Доменные и HTTP/TypeScript-поля сохранены; новые relationships/complexity/support
-  DTO для MVP не добавлялись. Порог опоры остаётся внутренним EngineOptions.
+- Optional options: algorithm=heuristic, solver_timeout_ms=10000, solver_workers=4.
+  PackingResult.optimization=null для heuristic; Z3 возвращает status/reason/workers/
+  time_limit_ms/support_ratio. Старые fixtures без этих полей поддерживаются.
+  Новый DTO описан в CONTRACTS; поля placements/instructions не менялись.
 - Целые мм/г; x=length, y=width, z=height; origin — передний левый нижний угол.
   Three.js mapping: (x,y,z) → (x,z,-y), размеры уже ориентированы движком.
 - POST /pack получает snapshot boxes/products/options и ничего не списывает.
@@ -69,7 +76,67 @@ backend pytest/Ruff с реальным PostgreSQL, frontend Vitest/build,
 Playwright с DUNCARBOX_LIVE_E2E=1 на запущенном API, Docker smoke.
 Не возвращать default factory к fixture stub.
 
-## Verification — финальный прогон
+## GitHub pull и нагрузочный тест, 2026-09-12
+
+- `git pull --ff-only origin main`: main обновлён с 0ee4ceb до **81f6f79**,
+  получены четыре коммита с кластерной инфраструктурой. Новые infra/ и .tofu/
+  совпадают с GitHub; кластер и DDNS этой операцией не разворачивались.
+- Перед pull сохранён stash `1b8fa0a90de7b9b1f61b756b4739a2a1d1141ef3`
+  (preserve-z3-before-github-pull-2026-09-12), включая untracked-файлы.
+  Он уже применён к обновлённому main без конфликтов и оставлен только как резерв.
+  Повторно применять его к текущей рабочей копии не нужно. Z3 и выбор алгоритмов сохранены.
+- Добавлены `app/packing/stress_benchmark.py`, быстрые проверки генератора/таймаута
+  и opt-in `tests/packing/test_stress_10000.py`. Набор: один заказ, 100 видов по
+  100 единиц, 8 разных типов коробок, разные размеры/вес/разрешения поворота.
+- Тест не обрезает и не разбивает 10 000 единиц. Проверяет весь план и инструкции
+  независимым валидатором, требует 10 000 упакованных, неизменность ввода. JSON
+  сохраняется в UTF-8/LF; SHA-256 совпадает с фактическими байтами request.json на Windows.
+- Реальный прогон heuristic с лимитом 120 с: **timeout**, 120.031 с, расчёт не завершён.
+  Полного результата нет, validated=false; это не успешный тест производительности.
+- Реальный прогон режима z3 с лимитом 120 с: **passed**, 88.969 с всего,
+  87.302 с расчёт с инструкциями, 0.422 с независимая валидация. Упаковано **10 000/10 000**,
+  346 коробок, заполнение 35.5527%, масса 10 234 600 г. Metadata:
+  fallback/size_limit, workers=0, support_ratio=1. SMT-поиск Z3 на этом размере
+  не запускался; измерена его строгая резервная эвристика (2 стратегии / 64 точки).
+- Отчёты: `.cache/stress-10000/{heuristic,z3}/report.json`; успешный полный план:
+  `.cache/stress-10000/z3/result.json`. Машина: Windows, Python 3.12.13, 16 логических CPU.
+  Выполнялись также обычные проверки; эти измерения не являются SLA или изолированным
+  сравнением одинаковых алгоритмических настроек.
+- После pull: **368 backend-тестов passed, 1 heavy-test skipped** без явного флага;
+  **85 frontend-тестов passed**, production build успешен. Ruff и diff --check проходят.
+  Heavy CLI проверен отдельно выше. HTTP/API сохраняет лимит 1000 единиц.
+- Команды запуска и формат результатов: [STRESS_TEST.md](STRESS_TEST.md).
+
+## Verification — добавление Z3, 2026-09-12
+
+- Вся backend suite: **360 passed**, 23.33 с, два прежних сторонних предупреждения.
+  Включены 23 новых solver-теста и 6 API-тестов алгоритма; Ruff проходит.
+- Frontend: **85 passed**, TypeScript/Vite production build успешен внутри Docker.
+- Production Playwright: **25 passed**, 36.3 с. 11 live: четыре demo × два алгоритма,
+  изменённый заказ, видимый size_limit fallback и PostgreSQL CRUD. Остальные 14
+  проверяют UI/контролируемые ответы, включая unproven Z3, export/print и сохранение
+  выбора при переходах между API и offline demo.
+- Все четыре demo с Z3 вернули optimal/completed и совпадение placements/instructions.
+  Простой 2/2 в 1 коробке; несколько коробок 6/6 в 2; oversized 0/1;
+  stock-shortage 1/3 в 1. Предметные статусы остались прежними.
+- Реальный Docker timeout smoke: 16 предметов, 8 workers, budget 1000 мс →
+  ответ за 1097 мс, fallback/time_limit, 16/16 упаковано, support_ratio=1.
+  API оставался healthy. Это измерение одного примера, не SLA всего API.
+- Независимый review модели, symmetry, partial sentinel, совместной опоры и
+  границ целей пройден. Regression внезапного выхода процесса: solver_error,
+  не ложный time_limit. Зависшие workers завершаются, IPC/процессные слоты освобождаются.
+- Z3 4.16.0.0 закреплён в uv.lock; обе production images пересобраны, три сервиса
+  healthy в duncarbox-integration: UI http://127.0.0.1:18080, API 18000, PostgreSQL 55433.
+- Desktop и mobile осмотрены, JS errors отсутствуют, переполнения страницы нет.
+  Снимки .cache/z3-order-*.png и .cache/z3-result-*.png игнорируются Git.
+- test_code.py сохранён без изменений; runtime использует новые z3_engine.py/z3_model.py.
+  Подробная модель, ограничения и многопроцессность — [Z3_ENGINE.md](Z3_ENGINE.md).
+- Полная модель ограничена 16 предметами / 64 совместимыми коробочными слотами.
+  Резерв: эвристика с опорой 100%, 2 стратегиями и 64 точками, до solver budget.
+  Временной предел и многопроцессность не гарантируют побайтовый детерминизм Z3.
+  Стоимость/нагрузки отсутствуют в модели, альтернативы Z3 пока пустые.
+
+## Verification — предыдущая интеграция
 
 - Python 3.12.13, backend pytest: **322 passed**. Включены 241 тест ядра,
   geometry/support/stock/weights, независимая валидация, hash-seed и параллельный

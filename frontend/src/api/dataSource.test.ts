@@ -51,6 +51,12 @@ describe('interchangeable data source', () => {
     await expect(source.pack(input)).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 422 });
   });
 
+  it('refuses Z3 in offline demo instead of presenting a fixture as an optimized result', async () => {
+    const input = await source.scenario('simple-order');
+    input.options = { algorithm: 'z3', solver_timeout_ms: 1000, solver_workers: 1 };
+    await expect(source.pack(input)).rejects.toMatchObject({ code: 'ENGINE_NOT_IMPLEMENTED', message: expect.stringContaining('Z3 работает только на сервере') });
+  });
+
   it('persists demo CRUD, reports conflicts and keeps scenario stocks independent', async () => {
     const box = { ...demoCatalog[0], id: 'operator-box', name: ' Коробка оператора ' };
     expect((await source.boxes.create(box)).name).toBe('Коробка оператора');

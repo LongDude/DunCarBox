@@ -46,10 +46,11 @@ Frontend требует точного представления целых ч�
 Нулевой остаток допустим и должен учитываться движком, не удаляться из запроса.
 
 Новые настройки optional: старый запрос продолжает использовать прежнюю эвристику.
-solver_timeout_ms и solver_workers применяются только к Z3. Число процессов
+solver_timeout_ms применяется к Z3, solver_workers — к обоим алгоритмам. Число процессов
 ограничивается доступными CPU и серверной конкуренцией; это верхняя граница запроса.
-Таймаут относится к фазе Z3 (включая запуск/построение модели); подготовка резервного
-плана и проверка/сериализация могут добавить время.
+Таймаут Z3 включает подготовку резерва, запуск/построение модели и поиск;
+проверка, инструкции, остановка процессов и сериализация могут добавить время.
+Эвристика использует до 12 процессов; при количестве единиц меньше 100 — один.
 
 ## Результат и доменные модели
 
@@ -67,10 +68,13 @@ solver_timeout_ms и solver_workers применяются только к Z3. �
 | PackingIssue | code, severity (`info/warning/error`), message, item_instance_ids[], box_type_ids[] |
 | PackingInstructionStep | step, action, box_id, message, item_instance_id, product_id, position, dimensions, orientation |
 | PackingAlternative | id, description, status, metrics, packed_boxes[], unpacked_items[], issues[] |
-| PackingResult | status, metrics, packed_boxes[], unpacked_items[], issues[], alternatives[], algorithm_version, optimization=null |
+| PackingResult | status, metrics, packed_boxes[], unpacked_items[], issues[], alternatives[], algorithm_version, optimization=null, calculation_seconds=null |
 | OptimizationInfo | status (`optimal/feasible/fallback`), reason (`completed/time_limit/size_limit/solver_error`), workers (реально запущенные процессы, >=0), time_limit_ms, support_ratio=1.0 |
 
 `optimization` отсутствует в старых fixtures или равно null у обычной эвристики.
+`calculation_seconds` — время построения плана и инструкций в секундах; отсутствует
+или равно null в старых fixtures. Коробки отсортированы по заполнению по убыванию;
+номера экземпляров и ссылки инструкций согласованы с новым порядком.
 При выборе Z3 оно обязательно: `optimal` означает доказанный оптимум **основного**
 плана по четырём целям Z3 и его модели полной опоры; `feasible` — допустимый план
 без доказательства оптимальности; `fallback` — явно обозначенный результат
@@ -127,7 +131,7 @@ solver_timeout_ms и solver_workers применяются только к Z3. �
 | PUT | /boxes/{id} | полная BoxType → 200; id тела должен совпасть с URL |
 | DELETE | /boxes/{id} | 204 без тела; отсутствие → 404 |
 | POST | /pack | PackingRequest → 200 PackingResult |
-| POST | /pack/jobs | PackingRequest → 202 `{id,status,error,elapsed_seconds,timeout_seconds}` |
+| POST | /pack/jobs | PackingRequest → 202 `{id,status,error,elapsed_seconds,timeout_seconds,stage,progress}` |
 | GET | /pack/jobs/{id} | состояние фонового расчёта |
 | GET | /pack/jobs/{id}/result | 200 PackingResult JSON; до готовности → 409 |
 | DELETE | /pack/jobs/{id} | остановка фонового расчёта → 204 |
@@ -144,8 +148,11 @@ POST /pack всегда получает явный snapshot boxes. Катало
 Одновременно выполняется один фоновый заказ (второй → 409). Результаты временные:
 до трёх последних задач, URL истекает через 15 минут после завершения. Штатный
 запуск — один Uvicorn процесс. При рестарте задачи исчезают, каталог сохраняется.
-UI выбирает фон для >1000 единиц или поиска >60 секунд; это пороги выбора транспорта,
-не ограничения допустимого запроса. Серверное demo `large-order` генерируется
+UI использует фон для всех расчётов, независимо от размера и бюджета.
+`stage` описывает текущий этап; `progress` — число от 0 до 1 или null, если доля
+неизвестна. В эвристике это ход проверки стратегий, у Z3 — расход общего бюджета,
+а не процент найденного оптимума. При завершении stage=completed, progress=1.
+Серверное demo `large-order` генерируется
 тем же кодом, что CLI; готового ответа для него нет.
 
 **Основной серверный режим:** `DeterministicPackingEngine`, версия
@@ -158,7 +165,8 @@ UI выбирает фон для >1000 единиц или поиска >60 с�
 при `options.algorithm="z3"`. `/health.engine` сохраняет версию default-алгоритма;
 фактический результат описывают `algorithm_version` и `optimization`.
 Z3 решает целочисленную модель: максимум количества упакованных единиц → максимум
-их объёма → минимум использованных коробок → минимум их суммарного объёма.
+их объёма → минимум суммарного объёма коробок (максимум общего заполнения)
+→ минимум количества коробок.
 Цены коробок в контракте нет. Прежние пределы 16 экземпляров / 64 слота сняты.
 Полезные слоты: сумма `min(stock, item_count)` по совместимым типам.
 При исчерпании выбранного времени возвращается лучший допустимый план, в том числе

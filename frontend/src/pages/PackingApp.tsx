@@ -13,6 +13,8 @@ import { createProduct, ProductEditor } from '../features/order/ProductEditor';
 import { AlgorithmSelector } from '../features/order/AlgorithmSelector';
 import { defaultAlgorithmSettings, readAlgorithmSettings, saveAlgorithmSettings } from '../features/order/algorithmSettings';
 import { PackingResultView } from '../features/packing/PackingResultView';
+import { CalculationProgress } from '../features/packing/CalculationProgress';
+import type { PackingProgress } from '../api/packingJobs';
 import { dimensions, weight } from '../features/packing/presentation';
 import type { BoxType, PackingRequest, PackingResult, Product } from '../types/packing';
 
@@ -54,6 +56,7 @@ function Workspace({
   const [calculated, setCalculated] = useState<CalculatedOrder | null>(null);
   const [loading, setLoading] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [progress, setProgress] = useState<PackingProgress | null>(null);
   const [demoLoading, setDemoLoading] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [errorOrigin, setErrorOrigin] = useState<'demo' | 'pack'>('pack');
@@ -68,12 +71,12 @@ function Workspace({
     boxes,
     products,
     options: {
-      include_alternatives: includeAlternatives,
+      include_alternatives: includeAlternatives && (mode === 'demo' || algorithmSettings.algorithm === 'heuristic'),
       max_alternatives: 3,
       algorithm: mode === 'demo' ? 'heuristic' : algorithmSettings.algorithm,
-      ...(mode === 'api' && algorithmSettings.algorithm === 'z3' ? {
-        solver_timeout_ms: algorithmSettings.solver_timeout_ms,
+      ...(mode === 'api' ? {
         solver_workers: algorithmSettings.solver_workers,
+        ...(algorithmSettings.algorithm === 'z3' ? { solver_timeout_ms: algorithmSettings.solver_timeout_ms } : {}),
       } : {}),
     },
   };
@@ -168,10 +171,13 @@ function Workspace({
       product.name = product.name.trim();
     });
     setElapsedSeconds(0);
+    setProgress(null);
     setLoading(true);
     setView('result');
     try {
-      const result = await source.pack(snapshot, controller.signal);
+      const result = await source.pack(snapshot, controller.signal, (next) => {
+        if (!controller.signal.aborted) setProgress(next);
+      });
       if (!controller.signal.aborted) {
         setCalculated({ result, request: snapshot, orderId: orderId.trim() });
         setResultVersion((value) => value + 1);
@@ -475,8 +481,9 @@ function Workspace({
                   <label className="checkbox-label">
                     <input
                       type="checkbox"
-                      checked={includeAlternatives}
-                      disabled={loading || demoLoading}
+                      checked={includeAlternatives && (mode === 'demo' || algorithmSettings.algorithm === 'heuristic')}
+                      disabled={loading || demoLoading || (mode === 'api' && algorithmSettings.algorithm === 'z3')}
+                      aria-describedby="alternatives-help"
                       onChange={(event) => {
                         invalidate();
                         setIncludeAlternatives(event.target.checked);
@@ -484,6 +491,11 @@ function Workspace({
                     />
                     Предложить альтернативы
                   </label>
+                  <p id="alternatives-help" className="summary-note">
+                    {mode === 'api' && algorithmSettings.algorithm === 'z3'
+                      ? 'Z3 возвращает один лучший найденный план. Альтернативы доступны для быстрой эвристики.'
+                      : 'Показать до 3 других планов с тем же количеством и объёмом товаров: можно сравнить коробки, заполнение и укладку. Если отличающихся планов нет, список будет пуст.'}
+                  </p>
                   {totalItems > 1_000 && (
                     <p className="summary-note">
                       Заказ рассчитывается в фоне. Можно отменить расчёт; оставьте вкладку открытой до получения плана.
@@ -622,7 +634,7 @@ function Workspace({
           (loading ? (
             <section className="result-loading screen-only" aria-busy="true">
               <Loading label="Подбираем коробки и готовим пошаговый план…" />
-              <p>Прошло: {Math.floor(elapsedSeconds / 60)} мин {elapsedSeconds % 60} с</p>
+              <CalculationProgress progress={progress} elapsedSeconds={elapsedSeconds} />
               {totalItems > 1_000 && <p>Фоновый расчёт {totalItems.toLocaleString('ru-RU')} предметов. Дождитесь плана или отмените расчёт.</p>}
               <div className="skeleton-metrics" />
               <div className="skeleton-scene" />

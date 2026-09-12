@@ -36,7 +36,7 @@ async function loadOrder(page: Page, scenario = 'multiple-boxes', mode = 'demo')
 
 async function calculate(page: Page) {
   await page.getByRole('button', { name: 'Рассчитать упаковку' }).click();
-  await expect(page.getByRole('heading', { name: 'План упаковки', exact: true })).toBeVisible();
+  await expect(page.locator('.result-screen h1')).toBeVisible();
 }
 
 async function jsonExport(
@@ -57,10 +57,21 @@ async function jsonExport(
   return JSON.parse(await readFile(path!, 'utf8'));
 }
 
-async function mockApi(page: Page, pack: (route: Route) => Promise<void>) {
+async function mockApi(page: Page, pack: (route: Pick<Route, 'request' | 'fulfill'>) => Promise<void>) {
+  let result: PackingResult | undefined;
+  const job = { id: 'a'.repeat(32), status: 'completed', error: null, elapsed_seconds: 1, timeout_seconds: null };
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === '/api/v1/pack') return pack(route);
+    if (path === '/api/v1/pack/jobs') return pack({
+      request: () => route.request(),
+      fulfill: async (options) => {
+        if ((options?.status ?? 200) >= 400) return route.fulfill(options);
+        result = options?.json as PackingResult;
+        return route.fulfill({ status: 202, json: job });
+      },
+    });
+    if (path.endsWith('/result')) return route.fulfill({ json: result });
+    if (path === `/api/v1/pack/jobs/${job.id}`) return route.fulfill({ json: job });
     if (path === '/api/v1/health')
       return route.fulfill({ json: { status: 'ok', api_version: 'v1', engine: 'test-engine-v1' } });
     if (path === '/api/v1/boxes') return route.fulfill({ json: catalog });

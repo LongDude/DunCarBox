@@ -184,3 +184,4 @@ class PackingResultSchema(ContractModel):
     alternatives: list[PackingAlternativeSchema]
     algorithm_version: str
     optimization: OptimizationInfoSchema | None = None
+    calculation_seconds: float | None = Field(default=None, ge=0)

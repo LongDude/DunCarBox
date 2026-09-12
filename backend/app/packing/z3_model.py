@@ -215,21 +215,21 @@ def _build_model(
                 z3.And(
                     packed_count == metrics.packed_items,
                     packed_volume == metrics.used_volume,
-                    used_count < metrics.boxes_used,
+                    box_volume < metrics.total_box_volume,
                 ),
                 z3.And(
                     packed_count == metrics.packed_items,
                     packed_volume == metrics.used_volume,
-                    used_count == metrics.boxes_used,
-                    box_volume <= metrics.total_box_volume,
+                    box_volume == metrics.total_box_volume,
+                    used_count <= metrics.boxes_used,
                 ),
             )
         )
     model.objectives = [
         opt.maximize(packed_count),
         opt.maximize(packed_volume),
-        opt.minimize(used_count),
         opt.minimize(box_volume),
+        opt.minimize(used_count),
     ]
     return model
 

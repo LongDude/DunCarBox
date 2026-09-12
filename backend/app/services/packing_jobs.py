@@ -4,6 +4,7 @@ Cancellation reaches the solver controller before the job process is reaped.
 PostgreSQL remains the persistent store for the box catalog.
 """
 
+import json
 import logging
 import math
 import multiprocessing
@@ -28,7 +29,21 @@ logger = logging.getLogger(__name__)
 
 
 def _calculate(request: PackingRequest, path: Path, cancel_event) -> None:
-    result = PackingService(PackingEngineDispatcher(cancel_event=cancel_event)).pack(request)
+    last_report, last_stage = 0.0, None
+
+    def progress(stage, fraction):
+        nonlocal last_report, last_stage
+        now = monotonic()
+        if stage == last_stage and now - last_report < 0.1:
+            return
+        temporary = path.with_name("progress.tmp")
+        temporary.write_text(json.dumps({"stage": stage, "progress": fraction}), encoding="utf-8")
+        temporary.replace(path.with_name("progress.json"))
+        last_report, last_stage = now, stage
+
+    engine = PackingEngineDispatcher(cancel_event=cancel_event, progress=progress)
+    result = PackingService(engine, progress=progress).pack(request)
+    progress("validating", None)
     support = Fraction(1) if request.options.algorithm == "z3" else Fraction(4, 5)
     validate_solution(request, result, support)
     # The parent serves the file only after a successful process exit.
@@ -124,9 +139,8 @@ class PackingJobs:
         finally:
             if process.pid is not None:
                 job.process_cancel.set()
-                # Give the Z3 controller time to terminate and reap its own workers.
-                # A heuristic job has no children and can be terminated afterwards.
-                process.join(timeout=5 if request.options.algorithm == "z3" else 0)
+                # Both controllers need time to terminate and reap their CPU workers.
+                process.join(timeout=5)
                 if process.is_alive():
                     process.terminate()
                 process.join(timeout=2)
@@ -148,12 +162,20 @@ class PackingJobs:
         return job
 
     def _snapshot(self, job: _Job) -> dict:
+        progress = {"stage": "preparing", "progress": None}
+        try:
+            progress = json.loads(job.path.with_name("progress.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        if job.status == "completed":
+            progress = {"stage": "completed", "progress": 1.0}
         return {
             "id": job.id,
             "status": job.status,
             "error": job.error,
             "elapsed_seconds": round((job.finished or monotonic()) - job.started, 2),
             "timeout_seconds": self.timeout_seconds,
+            **progress,
         }
 
     def status(self, job_id: str) -> dict:

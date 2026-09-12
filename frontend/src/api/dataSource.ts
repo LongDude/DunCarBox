@@ -8,6 +8,7 @@ import type {
 } from '../types/packing';
 import { ApiError } from './client';
 import { boxesApi, packingApi } from './packing';
+import type { PackingProgress } from './packingJobs';
 import { assertValid, inputLimits, validateBox, validateRequest } from './validation';
 
 export type DataSourceMode = 'api' | 'demo';
@@ -15,7 +16,7 @@ export interface DataSource {
   health(signal?: AbortSignal): Promise<HealthResponse>;
   scenarios(signal?: AbortSignal): Promise<DemoScenario[]>;
   scenario(id: string, signal?: AbortSignal): Promise<PackingRequest>;
-  pack(request: PackingRequest, signal?: AbortSignal): Promise<PackingResult>;
+  pack(request: PackingRequest, signal?: AbortSignal, onProgress?: (progress: PackingProgress) => void): Promise<PackingResult>;
   boxes: {
     list(signal?: AbortSignal): Promise<BoxType[]>;
     create(box: BoxType): Promise<BoxType>;

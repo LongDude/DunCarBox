@@ -176,3 +176,4 @@ class PackingResult:
     alternatives: tuple[PackingAlternative, ...] = ()
     algorithm_version: str = "demo-stub-v1"
     optimization: OptimizationInfo | None = None
+    calculation_seconds: float | None = None

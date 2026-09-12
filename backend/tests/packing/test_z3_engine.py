@@ -109,15 +109,16 @@ def test_packed_volume_breaks_equal_count_tie():
     assert result.optimization.status == "optimal"
 
 
-def test_box_count_precedes_empty_volume():
+def test_overall_fill_precedes_box_count():
     value = request(
         [box("small", size=(10, 10, 1), stock=2), box("large", size=(30, 10, 1))],
         [product(size=(10, 10, 1), quantity=2)],
     )
     result = pack(value)
     assert result.metrics.packed_items == 2
-    assert result.metrics.boxes_by_type == {"large": 1}
-    assert result.metrics.empty_volume == 100
+    assert result.metrics.boxes_by_type == {"small": 2}
+    assert result.metrics.fill_ratio == 1
+    assert result.metrics.empty_volume == 0
     assert result.optimization.status == "optimal"
 
 

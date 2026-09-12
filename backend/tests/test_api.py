@@ -79,7 +79,10 @@ def test_demo_api_is_deterministic_and_physically_valid(
             assert box["instructions"][-1]["action"] == "close_box"
     request["boxes"].reverse()
     request["products"].reverse()
-    assert client.post("/api/v1/pack", json=request).content == first.content
+    second = client.post("/api/v1/pack", json=request).json()
+    assert result.pop("calculation_seconds") >= 0
+    assert second.pop("calculation_seconds") >= 0
+    assert second == result
 
 
 def test_box_crud_is_persistent_and_does_not_reseed_deleted_entries(

@@ -119,26 +119,34 @@ describe('API status and diagnostic presentation', () => {
 });
 
 describe('server plans, instructions and export', () => {
+  it('sorts cartons by fill descending without changing the source array', () => {
+    const source = structuredClone(multiple.response);
+    source.packed_boxes[0].fill_ratio = 0.2;
+    source.packed_boxes[1].fill_ratio = 0.9;
+    const plan = selectPlan(source, null);
+    expect(plan.packed_boxes.map(box => box.fill_ratio)).toEqual([0.9, 0.2]);
+    expect(source.packed_boxes.map(box => box.fill_ratio)).toEqual([0.2, 0.9]);
+  });
   const altPartial = alternative('partial-plan', shortage.response);
   const altMultiple = alternative('multiple-plan', multiple.response);
   const result: PackingResult = { ...simple.response, alternatives: [altPartial, altMultiple] };
 
-  it('selects every part of the alternative together without sorting or mutating server plans', () => {
+  it('selects every part of the alternative without mutating server plans', () => {
     const before = JSON.stringify(result);
     const plan = selectPlan(result, altPartial.id);
-    expect(plan).toBe(altPartial);
+    expect(plan).toEqual(altPartial);
     expect(plan.status).toBe('partial');
     expect(plan.metrics).toBe(shortage.response.metrics);
-    expect(plan.packed_boxes).toBe(shortage.response.packed_boxes);
+    expect(plan.packed_boxes).toEqual(shortage.response.packed_boxes);
     expect(plan.unpacked_items).toBe(shortage.response.unpacked_items);
     expect(plan.issues).toBe(shortage.response.issues);
-    expect(selectPlan(result, altMultiple.id)).toBe(altMultiple);
+    expect(selectPlan(result, altMultiple.id)).toEqual(altMultiple);
     expect(JSON.stringify(result)).toBe(before);
   });
 
   it('uses the recommended plan for no selection or an unavailable alternative', () => {
-    expect(selectPlan(result, null)).toBe(result);
-    expect(selectPlan(result, 'removed-plan')).toBe(result);
+    expect(selectPlan(result, null)).toEqual(result);
+    expect(selectPlan(result, 'removed-plan')).toEqual(result);
   });
 
   it('keeps server alternative descriptions without inventing optimality or complexity labels', () => {

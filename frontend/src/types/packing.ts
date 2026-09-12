@@ -146,6 +146,7 @@ export interface PackingResult {
   alternatives: PackingAlternative[];
   algorithm_version: string;
   optimization?: PackingOptimization | null;
+  calculation_seconds?: number | null;
 }
 
 export interface DemoScenario {

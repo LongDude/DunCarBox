@@ -509,6 +509,7 @@ export function PackingResultView({
           <div>
             {/*<span className="eyebrow">ЗАКАЗ {orderId}</span>*/}
             <h1>Заказ {orderId}</h1>
+            {result.calculation_seconds != null && <p>Время построения плана: {result.calculation_seconds.toLocaleString('ru-RU', { maximumFractionDigits: 3 })} с</p>}
             {/*<p>Одна коробка за другой. Каждый товар на своём месте.</p>*/}
           </div>
           <div className="heading-actions">
@@ -599,7 +600,7 @@ export function PackingResultView({
                   {result.metrics.packed_items} из {result.metrics.total_items} товаров
                 </small>
               </button>
-              {result.alternatives.slice(0, 3).map((alternative, index) => (
+              {[...result.alternatives].sort((a, b) => b.metrics.fill_ratio - a.metrics.fill_ratio).slice(0, 3).map((alternative, index) => (
                 <button
                   className={`alternative-card ${selectedId === alternative.id ? 'selected' : ''}`}
                   type="button"

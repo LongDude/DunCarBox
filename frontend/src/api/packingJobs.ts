@@ -3,11 +3,16 @@ import { checkedResponse, responseGuards } from './responseValidation';
 import { isRecord } from './validation';
 import type { PackingRequest, PackingResult } from '../types/packing';
 
-interface Job {
+export interface PackingProgress {
+  stage?: string;
+  progress?: number | null;
+  elapsed_seconds: number;
+}
+
+interface Job extends PackingProgress {
   id: string;
   status: 'running' | 'completed' | 'failed' | 'cancelled';
   error: string | null;
-  elapsed_seconds: number;
   timeout_seconds: number | null;
 }
 
@@ -15,7 +20,9 @@ function isJob(value: unknown): boolean {
   return isRecord(value) && typeof value.id === 'string' && /^[a-f0-9]{32}$/.test(value.id)
     && ['running', 'completed', 'failed', 'cancelled'].includes(String(value.status))
     && (value.error === null || typeof value.error === 'string')
-    && typeof value.elapsed_seconds === 'number' && value.elapsed_seconds >= 0
+    && typeof value.elapsed_seconds === 'number' && Number.isFinite(value.elapsed_seconds) && value.elapsed_seconds >= 0
+    && (value.stage === undefined || typeof value.stage === 'string')
+    && (value.progress === undefined || value.progress === null || (typeof value.progress === 'number' && Number.isFinite(value.progress) && value.progress >= 0 && value.progress <= 1))
     && (value.timeout_seconds === null || (typeof value.timeout_seconds === 'number' && Number.isFinite(value.timeout_seconds) && value.timeout_seconds > 0));
 }
 
@@ -34,7 +41,9 @@ function pause(signal?: AbortSignal): Promise<void> {
   });
 }
 
-export async function packInBackground(request: PackingRequest, signal?: AbortSignal): Promise<PackingResult> {
+export async function packInBackground(
+  request: PackingRequest, signal?: AbortSignal, onProgress?: (progress: PackingProgress) => void,
+): Promise<PackingResult> {
   signal?.throwIfAborted();
   let job: Job | undefined;
   let completed = false;
@@ -47,6 +56,7 @@ export async function packInBackground(request: PackingRequest, signal?: AbortSi
     const deadline = job.timeout_seconds === null ? Infinity : Date.now() + (job.timeout_seconds + 15) * 1_000;
     while (true) {
       signal?.throwIfAborted();
+      onProgress?.(job);
       if (job.status === 'completed') {
         const result = await checkedResponse(apiRequest<PackingResult>(`/pack/jobs/${job.id}/result`, { signal }, 120_000), responseGuards.result);
         completed = true;

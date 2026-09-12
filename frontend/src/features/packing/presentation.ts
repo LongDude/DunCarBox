@@ -86,7 +86,8 @@ export function statusDisplay(status: PackingStatus, issues: PackingIssue[] = []
 }
 
 export function selectPlan(result: PackingResult, alternativeId: string | null): PackingPlan {
-  return result.alternatives.find((alternative) => alternative.id === alternativeId) ?? result;
+  const plan = result.alternatives.find((alternative) => alternative.id === alternativeId) ?? result;
+  return { ...plan, packed_boxes: [...plan.packed_boxes].sort((a, b) => b.fill_ratio - a.fill_ratio || a.id.localeCompare(b.id)) };
 }
 
 export function instructionAt(box: PackedBox, step: number) {

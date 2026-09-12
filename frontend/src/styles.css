@@ -1989,3 +1989,15 @@ main {
 
 .box-pagination label { display: grid; gap: 6px; min-width: 0; }
 .box-pagination select { max-width: 100%; padding: 10px; }
+/* The native indeterminate state stays honest during preparation/validation. */
+.calculation-progress {
+  width: min(100%, 520px);
+  margin: 20px auto;
+}
+
+.calculation-progress progress {
+  display: block;
+  width: 100%;
+  height: 14px;
+  accent-color: #246c56;
+}

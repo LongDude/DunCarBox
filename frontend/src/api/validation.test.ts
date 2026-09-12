@@ -12,7 +12,7 @@ describe('contract input validation', () => {
     for (const [field, values] of Object.entries({ algorithm: ['other', null], solver_timeout_ms: [0, -1, 1000.1, true, '1000'], solver_workers: [0, -1, 1.5, true, '4'] })) {
       for (const value of values) expect(validateRequest({ ...request(), options: { [field]: value } })[`options.${field}`]).toBeTruthy();
     }
-    expect(fieldLabel('body.options.solver_workers')).toBe('Параллельные процессы Z3');
+    expect(fieldLabel('body.options.solver_workers')).toBe('Параллельные процессы');
     expect(apiErrorDetailMessage({ field: 'body.options.solver_timeout_ms', message: 'Input should be greater than 0', type: 'greater_than' })).toContain('положительное время');
   });
   it('allows empty box snapshots and preserves zero stock as valid domain constraints', () => {

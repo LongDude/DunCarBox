@@ -118,15 +118,15 @@ def solution_signature(boxes: Sequence[PackedBox]) -> tuple:
 
 def solution_score(result: PackingResult, boxes: dict[str, BoxType]) -> tuple:
     m = result.metrics
-    # Prefer plentiful stock only after completeness, volume, carton count and simplicity.
+    # With packed count/volume fixed, minimum carton volume maximizes overall fill.
     scarce_usage = sum(
         count for bid, count in m.boxes_by_type.items() if boxes[bid].available_count == count
     )
     return (
         m.unpacked_items,
         -m.used_volume,
-        m.boxes_used,
         m.empty_volume,
+        m.boxes_used,
         packing_complexity(result.packed_boxes).total,
         scarce_usage,
         solution_signature(result.packed_boxes),

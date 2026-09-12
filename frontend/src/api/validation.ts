@@ -197,7 +197,7 @@ export function fieldLabel(field: string): string {
     max_alternatives: 'Количество альтернатив',
     algorithm: 'Алгоритм расчёта',
     solver_timeout_ms: 'Лимит поиска Z3, мс',
-    solver_workers: 'Параллельные процессы Z3',
+    solver_workers: 'Параллельные процессы',
   };
   if ((path[0] === 'products' || path[0] === 'boxes') && /^\d+$/.test(path[1] ?? '')) {
     return `${path[0] === 'products' ? 'Товар' : 'Коробка'} ${Number(path[1]) + 1}${path[2] ? ` · ${labels[path[2]] ?? 'Поле'}` : ''}`;

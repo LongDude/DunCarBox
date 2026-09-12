@@ -46,6 +46,8 @@ class PackingJobResponse(BaseModel):
     error: str | None
     elapsed_seconds: float
     timeout_seconds: float | None
+    stage: str = "preparing"
+    progress: float | None = None
 
 
 class HealthResponse(BaseModel):

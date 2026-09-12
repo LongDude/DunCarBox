@@ -315,8 +315,9 @@ def validate_solution(
                     solution.alternatives,
                     key=lambda alternative: (
                         alternative.metrics.unpacked_items,
-                        alternative.metrics.boxes_used,
+                        -alternative.metrics.used_volume,
                         alternative.metrics.empty_volume,
+                        alternative.metrics.boxes_used,
                         alternative.id,
                     ),
                 )

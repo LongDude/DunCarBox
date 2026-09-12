@@ -263,7 +263,7 @@ def test_solution_packed_volume_precedes_box_count_for_equal_item_count() -> Non
     )
 
 
-def test_solution_fewer_boxes_precedes_less_unused_volume() -> None:
+def test_solution_overall_fill_precedes_fewer_boxes() -> None:
     roomy = box_type("roomy", (30, 10, 10))
     tight = box_type("tight", (10, 10, 10))
     single = solution((packed_box(roomy, (placed(), placed("item:2", (10, 0, 0)))),))
@@ -272,7 +272,7 @@ def test_solution_fewer_boxes_precedes_less_unused_volume() -> None:
     )
     assert single.metrics.used_volume == double.metrics.used_volume
     assert single.metrics.empty_volume > double.metrics.empty_volume
-    assert solution_score(single, {roomy.id: roomy}) < solution_score(double, {tight.id: tight})
+    assert solution_score(double, {tight.id: tight}) < solution_score(single, {roomy.id: roomy})
 
 
 def test_solution_less_unused_volume_breaks_equal_count_volume_and_box_tie() -> None:

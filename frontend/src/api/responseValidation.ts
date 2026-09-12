@@ -110,6 +110,7 @@ export const responseGuards = {
     ...plan,
     alternatives: arrayOf(shape({ ...plan, id: text, description: text })),
     algorithm_version: text,
+    calculation_seconds: optional(nullable((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0)),
     optimization: optional(nullable(shape({
       status: oneOf('optimal', 'feasible', 'fallback'),
       reason: oneOf('completed', 'time_limit', 'size_limit', 'solver_error'),

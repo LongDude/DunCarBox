@@ -55,11 +55,15 @@ def test_background_api_runs_real_engine_and_serves_instructions(client: TestCli
     assert response.status_code == 202
     job_id = response.json()["id"]
     assert response.json()["timeout_seconds"] is None
+    assert response.json()["stage"] in {"preparing", "heuristic", "instructions", "validating"}
     state = wait_for(client.app.state.packing_jobs, job_id)
     assert state["status"] == "completed", state
+    assert state["stage"] == "completed"
+    assert state["progress"] == 1
     result = client.get(f"/api/v1/pack/jobs/{job_id}/result")
     assert result.status_code == 200
     assert result.json()["metrics"]["packed_items"] == 2
+    assert result.json()["calculation_seconds"] >= 0
     assert len(result.json()["packed_boxes"][0]["instructions"]) == 4
     assert client.delete(f"/api/v1/pack/jobs/{job_id}").status_code == 204
     assert client.get("/api/v1/pack/jobs/missing").status_code == 404

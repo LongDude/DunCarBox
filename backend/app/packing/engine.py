@@ -17,6 +17,7 @@ from app.domain.models import (
     Placement,
 )
 from app.packing.candidates import candidate_points
+from app.packing.control import SearchControl
 from app.packing.diagnostics import build_issues
 from app.packing.geometry import (
     aabb_intersects,
@@ -48,7 +49,9 @@ def _fill_box(
     items: tuple[ItemInstance, ...],
     orientations: dict[str, tuple[tuple[Orientation, Dimensions], ...]],
     options: EngineOptions,
+    control: SearchControl | None = None,
 ) -> _FilledBox:
+    control = control or SearchControl()
     placements: list[Placement] = []
     packed: set[str] = set()
     weight = used = 0
@@ -62,6 +65,8 @@ def _fill_box(
     for _ in range(options.max_fill_passes):
         count_before = len(placements)
         for item in items:
+            if control.expired():
+                break
             if weight == box.max_weight or used == volume(box) or not points:
                 break
             if item.id in packed or item.weight + weight > box.max_weight:
@@ -75,6 +80,8 @@ def _fill_box(
             best: Placement | None = None
             best_score: tuple | None = None
             for point in points:
+                if control.expired():
+                    break
                 # Candidate order and primary score are both bottom first.
                 if best is not None and point.z > best.position.z:
                     break
@@ -192,8 +199,12 @@ class DeterministicPackingEngine:
 
     version = "candidate-packing-v1"
 
-    def __init__(self, options: EngineOptions | None = None) -> None:
+    def __init__(
+        self, options: EngineOptions | None = None, *, control=None, strategies=None
+    ) -> None:
         self.options = options or EngineOptions()
+        self.control = control or SearchControl()
+        self.strategies = strategies or STRATEGIES[: self.options.max_strategies]
         if self.options != EngineOptions():
             ratio = self.options.min_support_ratio
             self.version = (
@@ -240,7 +251,7 @@ class DeterministicPackingEngine:
             if key in cache:
                 cache.move_to_end(key)
                 return cache[key]
-            result = _fill_box(box, useful, orientations, self.options)
+            result = _fill_box(box, useful, orientations, self.options, self.control)
             cache[key] = result
             if len(cache) > 128:
                 cache.popitem(last=False)
@@ -251,9 +262,13 @@ class DeterministicPackingEngine:
             stock = {bid: box.available_count for bid, box in boxes.items()}
             packed_boxes: list[PackedBox] = []
             while remaining:
+                if self.control.expired():
+                    break
                 best: tuple[BoxType, _FilledBox] | None = None
                 best_score: tuple | None = None
                 for box in boxes.values():
+                    if self.control.expired():
+                        break
                     if not stock[box.id]:
                         continue
                     trial = fill(box, remaining)
@@ -285,6 +300,11 @@ class DeterministicPackingEngine:
                 )
                 chosen = {p.item_instance_id for p in trial.placements}
                 remaining = tuple(item for item in remaining if item.id not in chosen)
+                self.control.report(
+                    "heuristic",
+                    (strategy_index + (1 - len(remaining) / max(1, len(ordered))))
+                    / len(self.strategies),
+                )
             packed = tuple(packed_boxes)
             chosen = {p.item_instance_id for box in packed for p in box.placements}
             unpacked = tuple(item for item in items if item.id not in chosen)
@@ -303,15 +323,19 @@ class DeterministicPackingEngine:
 
         solutions: dict[tuple, tuple[PackingResult, str]] = {}
         tried: set[tuple] = set()
-        for strategy in STRATEGIES[: self.options.max_strategies]:
+        for strategy_index, strategy in enumerate(self.strategies):
+            if solutions and self.control.expired():
+                break
             ordered = order_items(possible, strategy.ordering, compatible, boxes)
             start_key = strategy.box_policy, tuple(item.id for item in ordered)
             if start_key in tried:
+                self.control.report("heuristic", (strategy_index + 1) / len(self.strategies))
                 continue
             tried.add(start_key)
             result = search(strategy, ordered)
             signature = solution_signature(result.packed_boxes)
             solutions.setdefault(signature, (result, strategy.name))
+            self.control.report("heuristic", (strategy_index + 1) / len(self.strategies))
         ranked = sorted(solutions.values(), key=lambda pair: solution_score(pair[0], boxes))
         recommended, _ = ranked[0]
         alternatives = []
@@ -347,8 +371,9 @@ class DeterministicPackingEngine:
         alternatives.sort(
             key=lambda alt: (
                 alt.metrics.unpacked_items,
-                alt.metrics.boxes_used,
+                -alt.metrics.used_volume,
                 alt.metrics.empty_volume,
+                alt.metrics.boxes_used,
                 alt.id,
             )
         )

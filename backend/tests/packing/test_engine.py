@@ -241,15 +241,15 @@ def test_packed_count_precedes_fill_ratio_and_packed_volume() -> None:
     assert result.metrics.fill_ratio == 0.25
 
 
-def test_fewer_boxes_precedes_improved_fill_ratio() -> None:
+def test_improved_fill_ratio_precedes_fewer_boxes() -> None:
     request = PackingRequest(
         (box("small", stock=2), box("large", (30, 10, 10))),
         (product(quantity=2),),
     )
     result = pack(request)
     assert result.status == "success"
-    assert result.metrics.boxes_by_type == {"large": 1}
-    assert result.metrics.fill_ratio == round(2 / 3, 6)
+    assert result.metrics.boxes_by_type == {"small": 2}
+    assert result.metrics.fill_ratio == 1
 
 
 def test_scarce_versatile_box_is_preserved_for_item_that_needs_it() -> None:
@@ -319,8 +319,9 @@ def test_alternative_limits_and_physical_distinctness(
         result.alternatives,
         key=lambda plan: (
             plan.metrics.unpacked_items,
-            plan.metrics.boxes_used,
+            -plan.metrics.used_volume,
             plan.metrics.empty_volume,
+            plan.metrics.boxes_used,
             plan.id,
         ),
     )

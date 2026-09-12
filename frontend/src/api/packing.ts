@@ -1,20 +1,18 @@
 import { apiRequest } from './client';
 import { packInBackground } from './packingJobs';
+import type { PackingProgress } from './packingJobs';
 import { checkedResponse, responseGuards } from './responseValidation';
 import { assertValid, validateBox, validateRequest } from './validation';
-import type { BoxType, DemoScenario, HealthResponse, PackingRequest, PackingResult } from '../types/packing';
+import type { BoxType, DemoScenario, HealthResponse, PackingRequest } from '../types/packing';
 
 export const packingApi = {
   health: (signal?: AbortSignal) => checkedResponse(apiRequest<HealthResponse>('/health', { signal }), responseGuards.health),
   scenarios: (signal?: AbortSignal) => checkedResponse(apiRequest<DemoScenario[]>('/demo/scenarios', { signal }), responseGuards.scenarios),
   scenario: (id: string, signal?: AbortSignal) =>
     checkedResponse(apiRequest<PackingRequest>(`/demo/scenarios/${encodeURIComponent(id)}`, { signal }), responseGuards.request),
-  pack: async (request: PackingRequest, signal?: AbortSignal) => {
+  pack: async (request: PackingRequest, signal?: AbortSignal, onProgress?: (progress: PackingProgress) => void) => {
     assertValid(validateRequest(request));
-    if (request.products.reduce((sum, product) => sum + product.quantity, 0) > 1_000
-      || (request.options?.solver_timeout_ms ?? 10_000) > 60_000)
-      return packInBackground(request, signal);
-    return checkedResponse(apiRequest<PackingResult>('/pack', { method: 'POST', body: JSON.stringify(request), signal }, 120_000), responseGuards.result);
+    return packInBackground(request, signal, onProgress);
   },
 };
 

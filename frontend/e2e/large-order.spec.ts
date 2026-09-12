@@ -58,7 +58,7 @@ test('large menu demo: full real calculation and navigation through every box', 
     for (const placement of box.placements) expect(box.instructions[placement.step]).toMatchObject(placement);
   }
   console.log(`Large demo ${algorithm}: ${JSON.stringify({ elapsed_seconds: (Date.now() - started) / 1000, metrics: result.metrics, optimization: result.optimization })}`);
-  await expect(page.getByRole('heading', { name: 'План упаковки', exact: true })).toBeVisible();
+  await expect(page.locator('.result-screen h1')).toBeVisible();
   await expect(page.locator('.packing-viewer canvas')).toBeVisible();
   expect(await page.locator('.box-card').count()).toBeLessThanOrEqual(12);
   await expect(page.locator('.print-instructions')).toHaveCount(0);

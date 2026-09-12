@@ -8,10 +8,10 @@ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 describe('live API boundary', () => {
   it('sends the exact snapshot through the live adapter', async () => {
     const fixture = demoFixtures['simple-order'];
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(fixture.response), { status: 200 }));
+    const fetchMock = vi.fn(async (url: string) => Response.json(url.endsWith('/result') ? fixture.response : { id: 'a'.repeat(32), status: 'completed', error: null, elapsed_seconds: 1, timeout_seconds: null }));
     vi.stubGlobal('fetch', fetchMock);
     expect(await createDataSource('api').pack(fixture.request)).toEqual(fixture.response);
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/pack', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/pack/jobs', expect.objectContaining({
       method: 'POST', body: JSON.stringify(fixture.request), signal: expect.any(AbortSignal),
     }));
   });
@@ -65,7 +65,11 @@ describe('live API boundary', () => {
   it('allows a packing calculation to finish after the catalog request timeout', async () => {
     vi.useFakeTimers();
     const response = demoFixtures['simple-order'].response;
-    vi.stubGlobal('fetch', vi.fn((_url: string, options: RequestInit) => new Promise((resolve, reject) => {
+    vi.stubGlobal('fetch', vi.fn((url: string, options: RequestInit) => new Promise((resolve, reject) => {
+      if (!url.endsWith('/result')) {
+        resolve(Response.json({ id: 'a'.repeat(32), status: 'completed', error: null, elapsed_seconds: 1, timeout_seconds: null }));
+        return;
+      }
       options.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
       setTimeout(() => resolve(new Response(JSON.stringify(response))), 20_000);
     })));

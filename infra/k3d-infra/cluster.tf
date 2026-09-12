@@ -39,9 +39,8 @@ resource "k3d_cluster" "main" {
   }
 
   registries {
-    create = {
+    create {
       name      = var.registry_name
-      host      = "${var.registry_name}.local"
       host_port = var.registry_host_port
     }
   }

@@ -41,3 +41,4 @@ Thumbs.db
 # Infra
 infra/**/*.conf
 !infra/**/*.conf.example
+.terraform

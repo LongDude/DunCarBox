@@ -61,6 +61,7 @@ def _worker(
 ) -> None:
     """Spawn target; each process imports and owns its own Z3 runtime/context."""
     try:
+        from app.packing.z3_certificate import certify_incumbent
         from app.packing.z3_model import solve
 
         def emit(status: str, result: PackingResult | None) -> None:
@@ -77,7 +78,10 @@ def _worker(
                     score = received if score is None else min(score, received)
             return score
 
-        solve(request, slots, incumbent, variant, emit, receive_bound)
+        if certify_incumbent(request, incumbent):
+            emit("optimal", incumbent)
+        else:
+            solve(request, slots, incumbent, variant, emit, receive_bound)
     except Exception:
         _LOGGER.exception("Z3 packing worker failed")
         # Broken pipes occur if the controller has already stopped this worker.
@@ -125,11 +129,11 @@ class Z3PackingEngine:
             EngineOptions(
                 min_support_ratio=_FULL_SUPPORT,
                 max_candidate_points=64,
-                max_strategies=2,
+                max_strategies=3,
                 max_alternatives=0,
             ),
             control=control,
-            strategies=(STRATEGIES[0], STRATEGIES[6]),
+            strategies=(STRATEGIES[0], STRATEGIES[6], STRATEGIES[11]),
         ).pack(baseline_request)
         validate_solution(request, baseline, _FULL_SUPPORT)
         if self._cancelled():

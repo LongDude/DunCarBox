@@ -39,10 +39,10 @@ it('reports server progress through completion', async () => {
   expect(progress.mock.calls.map(([value]) => [value.stage, value.progress])).toEqual([['solver', 0.4], ['completed', 1]]);
 });
 
-it('keeps a long search budget and 16 processes and uses background transport for a small order', async () => {
+it('uses background transport for an unlimited Z3 search with 16 processes on a small order', async () => {
   const fetchMock = vi.fn(async (url: string) => Response.json(url.endsWith('/result') ? fixture.response : { ...job, status: 'completed' }));
   vi.stubGlobal('fetch', fetchMock);
-  const request = { ...fixture.request, options: { algorithm: 'z3' as const, solver_timeout_ms: 600_000, solver_workers: 16 } };
+  const request = { ...fixture.request, options: { algorithm: 'z3' as const, solver_workers: 16 } };
   await packingApi.pack(request);
   expect(fetchMock).toHaveBeenCalledWith('/api/v1/pack/jobs', expect.objectContaining({ body: JSON.stringify(request) }));
 });

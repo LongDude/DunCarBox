@@ -73,25 +73,25 @@ test('live API: changed quantity calculates a new plan', async ({ page }) => {
   await expect(page.locator('.status-badge')).toContainText('Заказ упакован');
 });
 
-test('live Z3: time budget shows fallback and accounts for the whole order', async ({ page }) => {
+test('live Z3: unlimited search returns a proven plan and accounts for the whole order', async ({ page }) => {
   await page.goto('/?mode=api');
   await page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true }).selectOption('z3');
   await page.getByLabel('Демо-сценарий').selectOption('simple-order');
   await page.getByRole('button', { name: 'Загрузить демо-заказ', exact: true }).click();
   await expect(page.getByLabel('Номер заказа')).toHaveValue('ДЕМО-simple-order');
-  await page.getByLabel('Кол-во товара 1, шт.').fill('17');
-  await page.getByLabel('Лимит поиска, с', { exact: true }).fill('0.1');
+  await page.getByLabel('Кол-во товара 1, шт.').fill('3');
+  await expect(page.getByLabel('Лимит поиска, с', { exact: true })).toHaveCount(0);
   const response = page.waitForResponse(r => r.url().endsWith('/result'));
   await page.getByRole('button', { name: 'Рассчитать упаковку', exact: true }).click();
   const result = await (await response).json() as PackingResult;
-  expect(result.metrics.total_items).toBe(17);
-  expect(result.metrics.packed_items + result.metrics.unpacked_items).toBe(17);
-  expect(result.optimization).toMatchObject({ status: 'fallback', reason: 'time_limit', support_ratio: 1 });
+  expect(result.metrics.total_items).toBe(3);
+  expect(result.metrics.packed_items + result.metrics.unpacked_items).toBe(3);
+  expect(result.optimization).toMatchObject({ status: 'optimal', reason: 'completed', support_ratio: 1, time_limit_ms: null });
   expect(result.optimization!.workers).toBeGreaterThanOrEqual(0);
   const summary = page.getByRole('region', { name: 'Алгоритм и качество решения' });
-  await expect(summary).toContainText('Использована резервная эвристика');
-  await expect(summary).toContainText('Оптимум не доказан');
-  await expect(summary).toContainText('Рассчитано: Быстрая эвристика');
+  await expect(summary).toContainText('Оптимум доказан в модели Z3');
+  await expect(summary).toContainText('без ограничения времени');
+  await expect(summary).toContainText('Рассчитано: Оптимизатор Z3');
 });
 
 test('live PostgreSQL catalog: create, reload, update and delete', async ({ page, request }) => {

@@ -9,6 +9,7 @@ it('keeps old fixtures compatible and accepts valid optimization metadata includ
   expect(responseGuards.result(result)).toBe(true);
   expect(responseGuards.result({ ...result, optimization: null })).toBe(true);
   expect(responseGuards.result({ ...result, optimization })).toBe(true);
+  expect(responseGuards.result({ ...result, optimization: { ...optimization, status: 'optimal', reason: 'completed', time_limit_ms: null } })).toBe(true);
 });
 
 it.each([

@@ -3,10 +3,12 @@ import { ALGORITHM_STORAGE_KEY, defaultAlgorithmSettings, readAlgorithmSettings,
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('restores valid API settings but rejects malformed or obsolete saved options', () => {
+it('migrates saved choices by discarding the old time limit and rejects malformed settings', () => {
   let value = JSON.stringify({ algorithm: 'z3', solver_timeout_ms: 600_000, solver_workers: 32 });
   vi.stubGlobal('localStorage', { getItem: () => value });
-  expect(readAlgorithmSettings()).toEqual({ algorithm: 'z3', solver_timeout_ms: 600_000, solver_workers: 32 });
+  expect(readAlgorithmSettings()).toEqual({ algorithm: 'z3', solver_workers: 32 });
+  value = JSON.stringify({ algorithm: 'z3', solver_workers: 8 });
+  expect(readAlgorithmSettings()).toEqual({ algorithm: 'z3', solver_workers: 8 });
   for (const damaged of ['{', 'null', '{"algorithm":"z3"}', '{"algorithm":"z3","solver_timeout_ms":10000,"solver_workers":0}']) {
     value = damaged;
     expect(readAlgorithmSettings()).toEqual(defaultAlgorithmSettings);

@@ -1224,6 +1224,24 @@ main {
   list-style: none;
   margin-top: 13px;
 }
+.unpacked-list-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  color: #94764e;
+  font-size: 11px;
+}
+.unpacked-list-controls .text-button {
+  color: #805f35;
+}
+.unpacked-list-scroll {
+  max-height: 360px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
 .unpacked-list li {
   display: flex;
   align-items: center;
@@ -1331,8 +1349,7 @@ main {
   padding: 0 10px;
   color: #bac4ad;
 }
-.mobile-only,
-.print-instructions {
+.mobile-only {
   display: none;
 }
 .sr-only {
@@ -1783,85 +1800,6 @@ main {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
-  }
-}
-@media print {
-  @page {
-    size: A4;
-    margin: 15mm;
-  }
-  :root {
-    background: white;
-    color: #111;
-  }
-  body {
-    font-size: 10pt;
-  }
-  .app-shell {
-    max-width: none;
-    padding: 0;
-  }
-  .screen-only,
-  .view-focus,
-  .skip-link {
-    display: none !important;
-  }
-  main {
-    padding: 0;
-    min-height: 0;
-  }
-  .print-instructions {
-    display: block;
-    color: #111;
-  }
-  .print-instructions h1 {
-    font-size: 20pt;
-    margin-bottom: 10pt;
-  }
-  .print-instructions h2 {
-    font-size: 14pt;
-    margin: 18pt 0 7pt;
-  }
-  .print-instructions h3 {
-    font-size: 11pt;
-    margin: 12pt 0 5pt;
-  }
-  .print-instructions p {
-    font-size: 10pt;
-    margin: 5pt 0;
-  }
-  .print-instructions article {
-    break-before: auto;
-    break-inside: auto;
-    margin-top: 20pt;
-    border-top: 1pt solid #aaa;
-    padding-top: 8pt;
-  }
-  .print-instructions li {
-    font-size: 10pt;
-    margin: 6pt 0;
-    break-inside: avoid;
-  }
-  .print-instructions ul,
-  .print-instructions ol {
-    padding-left: 18pt;
-  }
-  .print-instructions .metrics-grid {
-    grid-template-columns: repeat(3, 1fr);
-    padding: 12pt 0;
-    border-bottom: 1pt solid #aaa;
-    gap: 12pt;
-  }
-  .print-instructions .metrics-grid dd {
-    font-size: 16pt;
-  }
-  .print-instructions .metrics-grid dt,
-  .print-instructions .metrics-grid small {
-    color: #444;
-  }
-  .print-instructions h2,
-  .print-instructions h3 {
-    break-after: avoid;
   }
 }
 /* Keep the packing scene and operator actions close to the plan summary. */

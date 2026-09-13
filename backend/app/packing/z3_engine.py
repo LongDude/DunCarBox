@@ -1,8 +1,7 @@
-"""Bounded Z3 portfolio with a validated full-support heuristic incumbent.
+"""Cancellable Z3 portfolio with a validated full-support heuristic incumbent.
 
-The solver budget covers process startup, model construction and optimization.
-The initial heuristic shares that budget; validation and process cleanup add
-overhead. Worker limits apply across concurrent requests in this API process.
+Search has no time limit. Worker limits apply across concurrent requests in
+this API process; cancellation also interrupts waiting for an available worker.
 """
 
 import logging
@@ -56,7 +55,6 @@ def _worker(
     request: PackingRequest,
     slots: tuple,
     incumbent: PackingResult,
-    deadline: float,
     variant: int,
 ) -> None:
     """Spawn target; each process imports and owns its own Z3 runtime/context."""
@@ -66,10 +64,10 @@ def _worker(
         def emit(status: str, result: PackingResult | None) -> None:
             connection.send((status, result))
 
-        solve(request, slots, incumbent, deadline, variant, emit)
+        solve(request, slots, incumbent, variant, emit)
     except Exception:
         _LOGGER.exception("Z3 packing worker failed")
-        # Broken pipes occur if the deadline controller has already stopped us.
+        # Broken pipes occur if the controller has already stopped this worker.
         try:
             connection.send(("solver_error", None))
         except (BrokenPipeError, EOFError, OSError):
@@ -89,12 +87,7 @@ class Z3PackingEngine:
         return self._cancel_event is not None and self._cancel_event.is_set()
 
     def pack(self, request: PackingRequest) -> PackingResult:
-        started = monotonic()
-        timeout_ms = request.options.solver_timeout_ms
-        deadline = started + timeout_ms / 1000
-        control = SearchControl(
-            deadline=deadline, cancel_event=self._cancel_event, progress=self._progress
-        )
+        control = SearchControl(cancel_event=self._cancel_event, progress=self._progress)
         control.report("preparing", None)
         # Alternatives from an 80%-support engine cannot be reused in this model.
         baseline_request = replace(
@@ -118,7 +111,7 @@ class Z3PackingEngine:
         def finish(
             result: PackingResult,
             status: Literal["optimal", "feasible", "fallback"],
-            reason: Literal["completed", "time_limit", "size_limit", "solver_error"],
+            reason: Literal["completed", "solver_error"],
             workers: int,
         ) -> PackingResult:
             result = repack_cartons(request, result, control)
@@ -126,13 +119,11 @@ class Z3PackingEngine:
                 result,
                 algorithm_version=self.version,
                 alternatives=(),
-                optimization=OptimizationInfo(status, reason, workers, timeout_ms, 1.0),
+                optimization=OptimizationInfo(status, reason, workers, None, 1.0),
             )
             validate_solution(request, completed, _FULL_SUPPORT)
             return completed
 
-        if control.expired():
-            return finish(baseline, "fallback", "time_limit", 0)
         # This import remains lazy so heuristic-only requests do not load Z3.
         from app.packing.z3_model import box_slots
 
@@ -140,34 +131,29 @@ class Z3PackingEngine:
         if not slots or not baseline.metrics.total_items:
             return finish(baseline, "optimal", "completed", 0)
         context = multiprocessing.get_context("spawn")
-        # Reserve a small part of the same budget for a neat per-carton layout.
-        solver_deadline = deadline - min(0.5, timeout_ms / 1000 * 0.1)
         running: list[tuple[multiprocessing.Process, Connection]] = []
         acquired = 0
         best = baseline
         best_from_solver = False
-        reason: Literal["time_limit", "solver_error"] = "time_limit"
         proof: tuple[int, int, int, int] | None = None
+        # There is no known completion fraction for an unlimited solver search.
+        control.report("solver", None)
         try:
             for variant in range(workers_requested):
-                remaining = solver_deadline - monotonic()
-                if remaining <= 0 or self._cancelled():
+                if self._cancelled():
                     break
                 granted = _WORKER_SLOTS.acquire(blocking=False)
                 while (
-                    not granted and not running
-                    and monotonic() < solver_deadline and not self._cancelled()
+                    not granted and not running and not self._cancelled()
                 ):
-                    granted = _WORKER_SLOTS.acquire(
-                        timeout=min(0.1, max(0, solver_deadline - monotonic()))
-                    )
+                    granted = _WORKER_SLOTS.acquire(timeout=0.1)
                 if not granted:
                     break
                 acquired += 1
                 receiver, sender = context.Pipe(duplex=False)
                 process = context.Process(
                     target=_worker,
-                    args=(sender, request, slots, baseline, solver_deadline, variant),
+                    args=(sender, request, slots, baseline, variant),
                     name=f"duncarbox-z3-{variant}",
                     daemon=True,
                 )
@@ -177,32 +163,25 @@ class Z3PackingEngine:
                     _LOGGER.exception("Could not start Z3 packing worker")
                     receiver.close()
                     sender.close()
-                    reason = "solver_error"
                     break
                 sender.close()
                 running.append((process, receiver))
 
             active = [connection for _, connection in running]
-            while (
-                active and monotonic() < solver_deadline
-                and proof is None and not self._cancelled()
-            ):
-                control.report("solver", min(1, (monotonic() - started) / (timeout_ms / 1000)))
-                ready = wait(active, timeout=min(0.05, max(0, solver_deadline - monotonic())))
+            while active and proof is None and not self._cancelled():
+                ready = wait(active, timeout=0.05)
                 for connection in ready:
                     try:
                         status, candidate = connection.recv()
                     except (EOFError, OSError):
-                        if monotonic() < deadline:
-                            reason = "solver_error"
-                            _LOGGER.error("Z3 packing worker exited without a final result")
+                        _LOGGER.error("Z3 packing worker exited without a final result")
                         active.remove(connection)
                         continue
                     if candidate is not None:
                         try:
                             validate_solution(request, candidate, _FULL_SUPPORT)
                         except ValueError:
-                            reason = "solver_error"
+                            _LOGGER.exception("Z3 packing worker returned an invalid plan")
                             continue
                         if (_objective(candidate), solution_signature(candidate.packed_boxes)) <= (
                             _objective(best),
@@ -212,12 +191,10 @@ class Z3PackingEngine:
                             best_from_solver = True
                     if status == "optimal" and candidate is not None:
                         proof = _objective(candidate)
-                    elif status == "solver_error":
-                        reason = "solver_error"
                     if status != "feasible":
                         active.remove(connection)
         finally:
-            # No executor context manager that waits indefinitely on timed-out jobs.
+            # Reap the whole portfolio on proof, cancellation or worker failure.
             for process, connection in running:
                 if process.is_alive():
                     process.terminate()
@@ -232,12 +209,12 @@ class Z3PackingEngine:
             for _ in range(acquired):
                 _WORKER_SLOTS.release()
 
+        if self._cancelled():
+            raise RuntimeError("Packing cancelled")
         if proof is not None and proof == _objective(best):
             # The incumbent can be the selected plan: a solver proof of the same
             # objective also proves that independently validated plan optimal.
             return finish(best, "optimal", "completed", len(running))
-        if self._cancelled():
-            raise RuntimeError("Packing cancelled")
-        if proof is not None:
-            reason = "solver_error"
-        return finish(best, "feasible" if best_from_solver else "fallback", reason, len(running))
+        return finish(
+            best, "feasible" if best_from_solver else "fallback", "solver_error", len(running)
+        )

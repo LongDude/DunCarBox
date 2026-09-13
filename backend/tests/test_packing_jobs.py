@@ -124,7 +124,7 @@ def test_z3_background_cancellation_reaches_solver_controller():
         request = PackingRequest(
             value.boxes,
             value.products,
-            PackingOptions(algorithm="z3", solver_timeout_ms=600_000, solver_workers=16),
+            PackingOptions(algorithm="z3", solver_workers=16),
         )
         started = jobs.submit(request)
         # This case may already be optimal; cancellation is valid in either state.

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { inputLimits, validateRequest } from '../../api/validation';
 import type { Product } from '../../types/packing';
 import './forms.css';
 
 type NumericField = 'length' | 'width' | 'height' | 'weight' | 'quantity';
+const previewCount = 5;
 
 const numericFields: { key: NumericField; label: string; unit: string; max: number }[] = [
   { key: 'length', label: 'Длина', unit: 'мм', max: inputLimits.dimension },
@@ -67,12 +68,24 @@ export function ProductEditor({
 }: ProductEditorProps) {
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const tableId = useId();
   const editorRef = useRef<HTMLDivElement>(null);
   const validation = validateProducts(products);
+  const hasHiddenErrors = Object.keys(errors).some((path) => {
+    const match = /^(?:body\.)?products\.(\d+)\./.exec(path);
+    return match !== null && Number(match[1]) >= previewCount;
+  });
+  const isExpanded = expanded || hasHiddenErrors;
+  const visibleProducts = isExpanded ? products : products.slice(0, previewCount);
   const total = products.reduce(
     (sum, product) => sum + (Number.isFinite(product.quantity) ? product.quantity : 0),
     0,
   );
+
+  useEffect(() => {
+    if (hasHiddenErrors) setExpanded(true);
+  }, [hasHiddenErrors]);
 
   useEffect(() => {
     if (!focusId) return;
@@ -90,6 +103,7 @@ export function ProductEditor({
       ? { ...source, id: product.id, name: `${source.name.slice(0, 192)} (копия)` }
       : product;
     onChange([...products, next]);
+    setExpanded(true);
     setFocusId(next.id);
   };
 
@@ -104,12 +118,33 @@ export function ProductEditor({
 
   return (
     <div className="product-editor" ref={editorRef} aria-busy={disabled}>
+      {products.length > previewCount && (
+        <div className="product-list-controls">
+          <span className="form-count">
+            {isExpanded ? `Все позиции: ${products.length}` : `Показано ${previewCount} из ${products.length} позиций`}
+          </span>
+          <button
+            className="form-text-button"
+            type="button"
+            aria-expanded={isExpanded}
+            aria-controls={tableId}
+            disabled={hasHiddenErrors}
+            onClick={() => {
+              setExpanded(!isExpanded);
+              if (isExpanded) editorRef.current?.querySelector('.product-table-scroll')?.scrollTo(0, 0);
+            }}
+          >
+            {isExpanded ? 'Свернуть список' : `Показать все ${products.length} позиций`}
+          </button>
+        </div>
+      )}
       {products.length > 0 ? (
         <div
+          id={tableId}
           className="product-table-scroll"
           tabIndex={0}
           role="region"
-          aria-label="Таблица товаров, доступна горизонтальная прокрутка"
+          aria-label="Таблица товаров, доступна прокрутка"
         >
           <table className="product-table">
             <caption className="sr-only">Ввод товаров для расчёта упаковки</caption>
@@ -134,7 +169,7 @@ export function ProductEditor({
               </tr>
             </thead>
             <tbody>
-              {products.map((product, index) => {
+              {visibleProducts.map((product, index) => {
                 const nameError = fieldError(product, index, 'name');
                 return (
                   <tr key={product.id}>

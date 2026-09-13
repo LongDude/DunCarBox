@@ -146,7 +146,8 @@ class PackingOptions:
     include_alternatives: bool = True
     max_alternatives: int = 3
     algorithm: PackingAlgorithm = "heuristic"
-    solver_timeout_ms: int = 10_000
+    # Deprecated input retained for existing saved orders; engines ignore it.
+    solver_timeout_ms: int | None = None
     solver_workers: int = 4
 
 
@@ -162,7 +163,7 @@ class OptimizationInfo:
     status: Literal["optimal", "feasible", "fallback"]
     reason: Literal["completed", "time_limit", "size_limit", "solver_error"]
     workers: int
-    time_limit_ms: int
+    time_limit_ms: int | None
     support_ratio: float = 1.0
 
 

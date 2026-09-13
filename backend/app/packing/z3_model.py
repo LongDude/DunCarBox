@@ -8,7 +8,6 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from fractions import Fraction
-from time import monotonic
 
 import z3
 
@@ -328,7 +327,6 @@ def solve(
     request: PackingRequest,
     slots: tuple[BoxType, ...],
     incumbent: PackingResult,
-    deadline: float,
     variant: int,
     emit: Callable[[str, PackingResult | None], None],
 ) -> None:
@@ -338,11 +336,6 @@ def solve(
     z3.set_param("smt.random_seed", variant + 1)
     ctx = z3.Context()
     problem = _build_model(request, slots, ctx, variant, incumbent)
-    remaining = int((deadline - monotonic()) * 1000) - 100
-    if remaining <= 0:
-        emit("time_limit", None)
-        return
-    problem.optimizer.set(timeout=remaining)
 
     def on_model(model: z3.ModelRef) -> None:
         # Optimize can report intermediate models while proving optimality.
@@ -358,11 +351,11 @@ def solve(
     if status == z3.sat:
         result = _extract(request, problem, problem.optimizer.model())
         proved = all(objective.lower().eq(objective.upper()) for objective in problem.objectives)
-        emit("optimal" if proved else "time_limit", result)
+        emit("optimal" if proved else "solver_error", result)
     elif status == z3.unknown:
         # ``unknown`` means neither optimal nor impossible. The callback may
         # already have sent a feasible incumbent; otherwise the parent has one.
-        emit("time_limit", None)
+        emit("solver_error", None)
     else:
         # The validated incumbent makes this model satisfiable. UNSAT therefore
         # indicates a modelling/solver error, never proof of packing impossibility.

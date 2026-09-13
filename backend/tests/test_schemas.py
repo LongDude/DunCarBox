@@ -63,9 +63,18 @@ def test_default_options_and_boolean_values(order: dict) -> None:
     assert result.options.include_alternatives is True
     assert result.options.max_alternatives == 3
     assert result.options.algorithm == "heuristic"
-    assert result.options.solver_timeout_ms == 10_000
+    assert result.options.solver_timeout_ms is None
     assert result.options.solver_workers == 4
     assert result.products[0].allow_rotation is True
+
+
+def test_null_solver_timeout_is_accepted_and_field_is_deprecated(order: dict) -> None:
+    order["options"]["solver_timeout_ms"] = None
+    result = PackingRequestSchema.model_validate(order).to_domain()
+    assert result.options.solver_timeout_ms is None
+    schema = PackingRequestSchema.model_json_schema()
+    field = schema["$defs"]["PackingOptionsSchema"]["properties"]["solver_timeout_ms"]
+    assert field["deprecated"] is True
 
 
 def test_zero_stock_and_empty_boxes_are_valid_domain_inputs(order: dict) -> None:

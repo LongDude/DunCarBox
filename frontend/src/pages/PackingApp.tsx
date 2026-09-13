@@ -76,7 +76,6 @@ function Workspace({
       algorithm: mode === 'demo' ? 'heuristic' : algorithmSettings.algorithm,
       ...(mode === 'api' ? {
         solver_workers: algorithmSettings.solver_workers,
-        ...(algorithmSettings.algorithm === 'z3' ? { solver_timeout_ms: algorithmSettings.solver_timeout_ms } : {}),
       } : {}),
     },
   };

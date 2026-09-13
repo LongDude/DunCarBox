@@ -57,7 +57,7 @@ async function jsonExport(
   return JSON.parse(await readFile(path!, 'utf8'));
 }
 
-async function mockApi(page: Page, pack: (route: Pick<Route, 'request' | 'fulfill'>) => Promise<void>) {
+async function mockApi(page: Page, pack: (route: Pick<Route, 'request' | 'fulfill'>) => Promise<void>, demoRequest?: PackingRequest) {
   let result: PackingResult | undefined;
   const job = { id: 'a'.repeat(32), status: 'completed', error: null, elapsed_seconds: 1, timeout_seconds: null };
   await page.route('**/api/v1/**', async (route) => {
@@ -78,7 +78,7 @@ async function mockApi(page: Page, pack: (route: Pick<Route, 'request' | 'fulfil
     if (path === '/api/v1/demo/scenarios') return route.fulfill({ json: scenarios });
     const scenario = path.split('/').at(-1);
     if (scenarios.some((entry) => entry.id === scenario))
-      return route.fulfill({ json: fixture(`${scenario}.request`) });
+      return route.fulfill({ json: demoRequest ?? fixture(`${scenario}.request`) });
     return route.fulfill({
       status: 404,
       json: { error: { code: 'NOT_FOUND', message: 'Не найдено.', details: [] } },
@@ -92,7 +92,7 @@ test('Z3 settings survive demo mode and are exported with an unproven result', a
     ...structuredClone(simpleResult),
     algorithm_version: 'z3-packing-v1',
     issues: simpleResult.issues.filter(issue => issue.code !== 'DEMO_STUB'),
-    optimization: { status: 'feasible', reason: 'time_limit', workers: 2, time_limit_ms: 3250, support_ratio: 1 },
+    optimization: { status: 'feasible', reason: 'solver_error', workers: 2, time_limit_ms: null, support_ratio: 1 },
   };
   await mockApi(page, async route => {
     submitted = route.request().postDataJSON() as PackingRequest;
@@ -100,7 +100,7 @@ test('Z3 settings survive demo mode and are exported with an unproven result', a
   });
   await loadOrder(page, 'simple-order', 'api');
   await page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true }).selectOption('z3');
-  await page.getByLabel('Лимит поиска, с', { exact: true }).fill('3.25');
+  await expect(page.getByLabel('Лимит поиска, с', { exact: true })).toHaveCount(0);
   await page.getByLabel('Параллельные процессы', { exact: true }).fill('8');
   await page.getByLabel('Источник данных').selectOption('demo');
   await expect(page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true })).toBeDisabled();
@@ -111,15 +111,14 @@ test('Z3 settings survive demo mode and are exported with an unproven result', a
   await page.getByRole('button', { name: 'Загрузить демо-заказ', exact: true }).click();
   await expect(page.getByLabel('Номер заказа')).toHaveValue('ДЕМО-simple-order');
   await calculate(page);
-  expect(submitted?.options).toMatchObject({ algorithm: 'z3', solver_timeout_ms: 3250, solver_workers: 8 });
+  expect(submitted?.options).toMatchObject({ algorithm: 'z3', solver_workers: 8 });
+  expect(submitted?.options).not.toHaveProperty('solver_timeout_ms');
   const summary = page.getByRole('region', { name: 'Алгоритм и качество решения' });
   await expect(summary).toContainText('Найден допустимый план, оптимум не доказан');
-  await expect(summary).toContainText('Достигнут лимит времени поиска');
+  await expect(summary).toContainText('без ограничения времени');
   const exported = await jsonExport(page);
   expect(exported.request.options).toMatchObject(submitted!.options!);
   expect(exported.result.optimization).toEqual(result.optimization);
-  await page.emulateMedia({ media: 'print' });
-  await expect(page.locator('.print-instructions')).toContainText('Найден допустимый план, оптимум не доказан');
 });
 
 test('multiple boxes: 3D, step filtering, layer view, show all and box reset', async ({ page }) => {
@@ -189,7 +188,7 @@ test('multiple boxes: 3D, step filtering, layer view, show all and box reset', a
   expect(runtimeErrors).toEqual([]);
 });
 
-test('JSON and print include every box, complete steps and the order snapshot', async ({
+test('JSON includes every box, complete steps and the order snapshot; PDF is unavailable', async ({
   page,
 }) => {
   await loadOrder(page);
@@ -203,22 +202,87 @@ test('JSON and print include every box, complete steps and the order snapshot', 
   expect(exported.selected_plan_id).toBe('recommended');
   expect(exported.selected_plan.packed_boxes.flatMap((box) => box.instructions)).toHaveLength(10);
 
-  await page.evaluate(() => {
-    window.print = () => {
-      document.documentElement.dataset.printInvoked = 'yes';
-    };
-  });
-  await page.getByRole('button', { name: 'Печать / PDF', exact: true }).click();
-  await expect(page.locator('html')).toHaveAttribute('data-print-invoked', 'yes');
-  await expect(page.locator('.print-instructions')).toBeHidden();
-  await page.emulateMedia({ media: 'print' });
-  await expect(page.locator('.print-instructions')).toBeVisible();
-  await expect(page.locator('.result-screen')).toBeHidden();
-  await expect(page.locator('.print-instructions > article')).toHaveCount(2);
-  await expect(page.locator('.print-instructions > article ol > li')).toHaveCount(10);
-  await expect(page.locator('.print-instructions')).toContainText('ДЕМО-multiple-boxes');
-  await expect(page.locator('.print-instructions')).toContainText('box-m:1');
-  await expect(page.locator('.print-instructions')).toContainText('box-m:2');
+  await expect(page.getByRole('button', { name: /Печать|PDF/ })).toHaveCount(0);
+  await expect(page.locator('.print-instructions')).toHaveCount(0);
+});
+
+function longOrder(): { request: PackingRequest; result: PackingResult } {
+  const request = fixture<PackingRequest>('oversized.request');
+  const result = fixture<PackingResult>('oversized.response');
+  request.products = Array.from({ length: 12 }, (_, index) => ({
+    ...request.products[0], id: `poster-${index + 1}`, name: `Постер ${index + 1}`, quantity: 2,
+  }));
+  result.unpacked_items = request.products.flatMap((product) =>
+    Array.from({ length: product.quantity }, (_, index) => ({
+      ...result.unpacked_items[0], ...product,
+      id: `${product.id}:${index + 1}`, product_id: product.id, unit_index: index + 1,
+    })),
+  );
+  result.metrics = { ...result.metrics, total_items: 24, unpacked_items: 24 };
+  result.algorithm_version = 'test-engine-v1';
+  result.issues = [{
+    code: 'ITEM_TOO_LARGE', severity: 'error', message: 'Товары не помещаются в коробки.',
+    item_instance_ids: result.unpacked_items.map(({ id }) => id), box_type_ids: [],
+  }];
+  return { request, result };
+}
+
+test('long order and unpacked lists expand locally and preserve all products in JSON', async ({ page }) => {
+  const data = longOrder();
+  let submitted: PackingRequest | undefined;
+  await mockApi(page, async (route) => {
+    submitted = route.request().postDataJSON() as PackingRequest;
+    await route.fulfill({ json: data.result });
+  }, data.request);
+  await loadOrder(page, 'oversized', 'api');
+  await expect(page.locator('.product-table tbody tr')).toHaveCount(5);
+  await expect(page.locator('.product-editor-footer')).toContainText('12 поз.');
+  const expandProducts = page.locator('.product-list-controls button');
+  await expect(expandProducts).toHaveAttribute('aria-expanded', 'false');
+  await expandProducts.click();
+  await expect(page.locator('.product-table tbody tr')).toHaveCount(12);
+  expect(await page.locator('.product-table-scroll').evaluate((element) =>
+    element.clientHeight <= 440 && element.scrollHeight > element.clientHeight,
+  )).toBe(true);
+  await page.getByLabel('Название товара 12', { exact: true }).fill('Последний постер');
+  await expandProducts.click();
+  await expect(page.locator('.product-table tbody tr')).toHaveCount(5);
+  await calculate(page);
+  expect(submitted?.products).toHaveLength(12);
+  expect(submitted?.products[11].name).toBe('Последний постер');
+  await expect(page.locator('.unpacked-panel .count-badge')).toHaveText('24 шт.');
+  await expect(page.locator('.unpacked-list > li')).toHaveCount(5);
+  await expect(page.locator('.unpacked-list > li').first()).toContainText('Постер 1 · 2 шт.');
+  const expandUnpacked = page.locator('.unpacked-list-controls button');
+  await expandUnpacked.click();
+  await expect(expandUnpacked).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('.unpacked-list > li')).toHaveCount(12);
+  expect(await page.locator('.unpacked-list-scroll').evaluate((element) =>
+    element.clientHeight <= 360 && element.scrollHeight > element.clientHeight,
+  )).toBe(true);
+  await expandUnpacked.click();
+  await expect(page.locator('.unpacked-list > li')).toHaveCount(5);
+  const exported = await jsonExport(page);
+  expect(exported.request.products).toHaveLength(12);
+  expect(exported.result.unpacked_items).toHaveLength(24);
+});
+
+test('hidden invalid rows and newly added products open the full order automatically', async ({ page }) => {
+  const data = longOrder();
+  await mockApi(page, (route) => route.fulfill({ json: data.result }), data.request);
+  await loadOrder(page, 'oversized', 'api');
+  const expandProducts = page.locator('.product-list-controls button');
+  await expandProducts.click();
+  await page.getByLabel('Длина товара 12, мм', { exact: true }).fill('');
+  await expandProducts.click();
+  await page.getByRole('button', { name: 'Рассчитать упаковку' }).click();
+  await expect(expandProducts).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByLabel('Длина товара 12, мм', { exact: true })).toBeFocused();
+  await page.getByLabel('Длина товара 12, мм', { exact: true }).fill('650');
+  await expandProducts.click();
+  await page.getByRole('button', { name: 'Добавить товар', exact: false }).click();
+  await expect(page.getByLabel('Название товара 13', { exact: true })).toBeFocused();
+  await expect(page.locator('.product-table tbody tr')).toHaveCount(13);
 });
 
 test('demo catalog creates, persists, updates and deletes boxes including zero stock', async ({
@@ -340,22 +404,22 @@ for (const scenario of [
   { id: 'oversized', status: 'Невозможно упаковать заказ', unpacked: 1, boxes: 0 },
   { id: 'stock-shortage', status: 'Упакован частично', unpacked: 2, boxes: 1 },
 ]) {
-  test(`${scenario.id}: failed items and diagnostic reasons remain visible and printable`, async ({
+  test(`${scenario.id}: failed items are grouped with quantities and reasons while JSON retains every unit`, async ({
     page,
   }) => {
     await loadOrder(page, scenario.id);
     await calculate(page);
     await expect(page.locator('.status-badge')).toContainText(scenario.status);
     await expect(page.getByRole('heading', { name: 'Осталось без упаковки' })).toBeVisible();
-    await expect(page.locator('.unpacked-list > li')).toHaveCount(scenario.unpacked);
+    await expect(page.locator('.unpacked-list > li')).toHaveCount(1);
+    await expect(page.locator('.unpacked-list > li')).toContainText(`${scenario.unpacked} шт.`);
     await expect(page.locator('.box-selector > button')).toHaveCount(scenario.boxes);
-    await expect(page.getByRole('region', { name: 'Причины и пояснения' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Неупакованные товары и причины' })).toContainText(
+      scenario.id === 'oversized' ? 'Товар не помещается' : 'Недостаточно коробок',
+    );
     const exported = await jsonExport(page);
     expect(exported.result.unpacked_items).toHaveLength(scenario.unpacked);
-    await page.emulateMedia({ media: 'print' });
-    await expect(page.locator('.print-instructions')).toBeVisible();
-    await expect(page.locator('.print-instructions')).toContainText('Не упаковано');
-    await expect(page.locator('.print-instructions')).toContainText('Причины и пояснения');
+
   });
 }
 
@@ -475,7 +539,7 @@ test('choosing an API alternative resets the step and exports the selected compl
   expect(exported.selected_plan.packed_boxes).toHaveLength(2);
   await page.getByRole('button', { name: /Рекомендуемый/ }).click();
   await expect(page.locator('.step-counter')).toHaveText('0 / 4');
-  await expect(page.locator('.print-instructions > article').first()).toContainText('box-m:1');
+  expect((await jsonExport(page)).selected_plan_id).toBe('recommended');
 });
 
 test('WebGL failure keeps instructions usable through keyboard-accessible layers', async ({

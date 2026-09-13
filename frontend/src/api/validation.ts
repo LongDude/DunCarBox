@@ -150,6 +150,7 @@ export function validateRequest(value: unknown): FieldErrors {
         ['solver_timeout_ms', 1, Number.MAX_SAFE_INTEGER],
         ['solver_workers', 1, Number.MAX_SAFE_INTEGER],
       ] as const) {
+        if (field === 'solver_timeout_ms' && value.options[field] === null) continue;
         if (value.options[field] !== undefined) {
           const error = numberError(value.options[field], min, max);
           if (error) optionErrors[field] = error;
@@ -196,7 +197,7 @@ export function fieldLabel(field: string): string {
     include_alternatives: 'Альтернативные планы',
     max_alternatives: 'Количество альтернатив',
     algorithm: 'Алгоритм расчёта',
-    solver_timeout_ms: 'Лимит поиска Z3, мс',
+    solver_timeout_ms: 'Устаревший параметр времени, мс',
     solver_workers: 'Параллельные процессы',
   };
   if ((path[0] === 'products' || path[0] === 'boxes') && /^\d+$/.test(path[1] ?? '')) {
@@ -207,7 +208,7 @@ export function fieldLabel(field: string): string {
 
 export function apiErrorDetailMessage(detail: ApiErrorDetail): string {
   if (/[а-яё]/i.test(detail.message)) return detail.message;
-  if (detail.field.endsWith('solver_timeout_ms')) return 'Укажите положительное время поиска с точностью до миллисекунды.';
+  if (detail.field.endsWith('solver_timeout_ms')) return 'Удалите устаревший параметр solver_timeout_ms или укажите null. Z3 работает без ограничения времени.';
   if (detail.field.endsWith('solver_workers')) return 'Укажите положительное целое число процессов.';
   if (detail.field.endsWith('algorithm')) return 'Выберите эвристику или оптимизатор Z3.';
   const labels: Record<string, string> = {

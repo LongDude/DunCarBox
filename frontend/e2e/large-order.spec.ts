@@ -9,10 +9,10 @@ test('menu demo: 10000 items, 100 products, 8 box types and cancellable calculat
   await page.getByLabel('Демо-сценарий').selectOption('large-order');
   await page.getByRole('button', { name: 'Загрузить демо-заказ', exact: true }).click();
   await expect(page.getByLabel('Номер заказа')).toHaveValue('ДЕМО-large-order');
-  await expect(page.getByLabel('Кол-во товара 100, шт.', { exact: true })).toHaveValue('100');
+  await expect(page.getByLabel('Кол-во товара 1, шт.', { exact: true })).toHaveValue('100');
   await expect(page.getByText('10000 шт.', { exact: true }).first()).toBeVisible();
   await page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true }).selectOption('z3');
-  await page.getByLabel('Лимит поиска, с', { exact: true }).fill('120');
+  await expect(page.getByLabel('Лимит поиска, с', { exact: true })).toHaveCount(0);
   await page.getByLabel('Параллельные процессы', { exact: true }).fill('16');
   const started = page.waitForResponse(r => r.url().endsWith('/pack/jobs') && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Рассчитать упаковку', exact: true }).click();
@@ -21,7 +21,8 @@ test('menu demo: 10000 items, 100 products, 8 box types and cancellable calculat
   const payload = response.request().postDataJSON();
   expect(payload.products).toHaveLength(100);
   expect(payload.boxes).toHaveLength(8);
-  expect(payload.options).toMatchObject({ algorithm: 'z3', solver_workers: 16, solver_timeout_ms: 120000 });
+  expect(payload.options).toMatchObject({ algorithm: 'z3', solver_workers: 16 });
+  expect(payload.options).not.toHaveProperty('solver_timeout_ms');
   const job = await response.json();
   const cancelled = page.waitForResponse(r => r.url().endsWith(`/pack/jobs/${job.id}`) && r.request().method() === 'DELETE');
   await page.getByRole('button', { name: 'Отменить расчёт', exact: true }).click();
@@ -35,7 +36,7 @@ test('large menu demo: full real calculation and navigation through every box', 
   test.setTimeout(1_800_000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  const algorithm = process.env.DUNCARBOX_DEMO_ALGORITHM || 'z3';
+  const algorithm = process.env.DUNCARBOX_DEMO_ALGORITHM || 'heuristic';
   await page.goto('/?mode=api');
   await page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true }).selectOption(algorithm);
   await page.getByLabel('Демо-сценарий').selectOption('large-order');

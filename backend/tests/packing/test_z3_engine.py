@@ -1,12 +1,13 @@
-"""Solver semantics, full-support geometry and bounded process orchestration."""
+"""Solver semantics, full-support geometry and cancellable process orchestration."""
 
 import multiprocessing
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 from fractions import Fraction
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Event
 from time import monotonic, sleep
+from types import SimpleNamespace
 
 import pytest
 import z3
@@ -17,7 +18,7 @@ from app.packing.engine import _metrics
 from app.packing.strategies import expand_items
 from app.packing.validation import validate_solution
 from app.packing.z3_engine import Z3PackingEngine
-from app.packing.z3_model import _build_model, box_slots
+from app.packing.z3_model import _build_model, box_slots, solve
 
 
 def box(identifier="box", size=(10, 10, 10), weight=100, stock=1):
@@ -28,7 +29,7 @@ def product(identifier="item", size=(10, 10, 10), weight=1, quantity=1, rotation
     return Product(identifier, identifier, *size, weight, quantity, rotation)
 
 
-def request(boxes, products, *, timeout=5000, workers=1):
+def request(boxes, products, *, timeout=None, workers=1):
     return PackingRequest(
         tuple(boxes),
         tuple(products),
@@ -45,6 +46,7 @@ def pack(value):
     validate_solution(value, result, Fraction(1))
     assert result.algorithm_version == "z3-packing-v1"
     assert result.optimization.support_ratio == 1
+    assert result.optimization.time_limit_ms is None
     return result
 
 
@@ -160,21 +162,24 @@ def test_unpacked_item_cannot_support_a_packed_item():
     assert model.optimizer.check() == z3.unsat
 
 
-def test_large_order_attempts_solver_without_dropping_units():
+def test_large_order_attempts_solver_without_dropping_units(monkeypatch):
+    # Exercise input forwarding without an expensive optimality proof.
+    monkeypatch.setattr("app.packing.z3_engine._worker", _feasible_only_worker)
     value = request([box(stock=17)], [product(quantity=17)], timeout=100)
     result = pack(value)
     assert result.metrics.total_items == result.metrics.packed_items == 17
-    assert result.optimization.status == "fallback"
-    assert result.optimization.reason == "time_limit"
+    assert result.optimization.status == "feasible"
+    assert result.optimization.reason == "solver_error"
     assert result.optimization.workers == 1
 
 
-def test_box_slots_above_previous_limit_still_reach_solver():
+def test_box_slots_above_previous_limit_still_reach_solver(monkeypatch):
+    monkeypatch.setattr("app.packing.z3_engine._worker", _feasible_only_worker)
     value = request([box(str(i)) for i in range(65)], [product()], timeout=100)
     result = pack(value)
     assert result.metrics.packed_items == 1
-    assert result.optimization.status == "fallback"
-    assert result.optimization.reason == "time_limit"
+    assert result.optimization.status == "feasible"
+    assert result.optimization.reason == "solver_error"
     assert result.optimization.workers == 1
 
 
@@ -201,7 +206,7 @@ def test_abrupt_worker_exit_is_a_solver_error_not_a_timeout(monkeypatch):
 
 def _feasible_only_worker(connection, request, slots, incumbent, *args):
     connection.send(("feasible", incumbent))
-    connection.send(("time_limit", None))
+    connection.send(("solver_error", None))
     connection.close()
 
 
@@ -216,7 +221,7 @@ def _inferior_worker(connection, request, slots, incumbent, *args):
         issues=build_issues(request, (), items),
     )
     connection.send(("feasible", result))
-    connection.send(("time_limit", None))
+    connection.send(("solver_error", None))
     connection.close()
 
 
@@ -224,7 +229,7 @@ def test_valid_solver_incumbent_without_proof_is_feasible(monkeypatch):
     monkeypatch.setattr("app.packing.z3_engine._worker", _feasible_only_worker)
     result = pack(request([box()], [product()]))
     assert result.optimization.status == "feasible"
-    assert result.optimization.reason == "time_limit"
+    assert result.optimization.reason == "solver_error"
     assert result.metrics.packed_items == 1
 
 
@@ -233,20 +238,38 @@ def test_inferior_solver_candidate_never_replaces_strict_baseline(monkeypatch):
     result = pack(request([box()], [product()]))
     assert result.metrics.packed_items == 1
     assert result.optimization.status == "fallback"
-    assert result.optimization.reason == "time_limit"
+    assert result.optimization.reason == "solver_error"
 
 
-def test_deadline_terminates_a_stuck_worker_and_keeps_full_support_baseline(monkeypatch):
+def test_cancellation_terminates_a_stuck_worker_and_releases_process_slot(monkeypatch):
     monkeypatch.setattr("app.packing.z3_engine._worker", _unresponsive_worker)
-    value = request([box(size=(10, 10, 20))], [product(quantity=2)], timeout=300)
+    gate = BoundedSemaphore(1)
+    monkeypatch.setattr("app.packing.z3_engine._WORKER_SLOTS", gate)
+    cancel = Event()
+    solver_started = Event()
+    engine = Z3PackingEngine(
+        cancel_event=cancel,
+        progress=lambda stage, fraction: solver_started.set() if stage == "solver" else None,
+    )
+    value = request([box(size=(10, 10, 20))], [product(quantity=2)], timeout=1)
     previous = {child.pid for child in multiprocessing.active_children()}
-    started = monotonic()
-    result = pack(value)
-    assert monotonic() - started < 3
-    assert result.metrics.packed_items == 2
-    assert result.optimization.status == "fallback"
-    assert result.optimization.reason == "time_limit"
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(engine.pack, value)
+        try:
+            assert solver_started.wait(5)
+            started = monotonic()
+            while {child.pid for child in multiprocessing.active_children()} <= previous:
+                assert monotonic() - started < 5
+                sleep(0.01)
+            sleep(0.05)
+            assert not future.done(), "Legacy 1 ms timeout must not stop the worker"
+        finally:
+            cancel.set()
+        with pytest.raises(RuntimeError, match="cancelled"):
+            future.result(timeout=5)
     assert {child.pid for child in multiprocessing.active_children()} <= previous
+    assert gate.acquire(blocking=False)
+    gate.release()
 
 
 def test_solver_exception_is_never_reported_as_an_optimality_proof(monkeypatch):
@@ -257,17 +280,67 @@ def test_solver_exception_is_never_reported_as_an_optimality_proof(monkeypatch):
     assert result.optimization.reason == "solver_error"
 
 
-def test_busy_process_budget_waits_only_until_deadline(monkeypatch):
+def test_busy_process_budget_waits_until_cancelled(monkeypatch):
     gate = BoundedSemaphore(1)
     gate.acquire()
     monkeypatch.setattr("app.packing.z3_engine._WORKER_SLOTS", gate)
-    started = monotonic()
-    result = pack(request([box()], [product()], timeout=50))
-    assert 0.04 <= monotonic() - started < 2
-    assert result.optimization.status == "fallback"
-    assert result.optimization.reason == "time_limit"
-    assert result.optimization.workers == 0
+    cancel = Event()
+    waiting = Event()
+    engine = Z3PackingEngine(
+        cancel_event=cancel,
+        progress=lambda stage, fraction: waiting.set() if stage == "solver" else None,
+    )
+    previous = {child.pid for child in multiprocessing.active_children()}
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(engine.pack, request([box()], [product()], timeout=1))
+        try:
+            assert waiting.wait(5)
+            sleep(0.15)
+            assert not future.done()
+        finally:
+            cancel.set()
+        with pytest.raises(RuntimeError, match="cancelled"):
+            future.result(timeout=2)
+    assert {child.pid for child in multiprocessing.active_children()} <= previous
+    assert not gate.acquire(blocking=False), "Controller must not release another owner's slot"
     gate.release()
+
+
+def test_real_solver_ignores_legacy_timeout_and_reports_unknown_progress():
+    progress = []
+    value = request([box(size=(20, 10, 10))], [product(quantity=2)], timeout=1)
+    result = Z3PackingEngine(progress=lambda *values: progress.append(values)).pack(value)
+    validate_solution(value, result, Fraction(1))
+    assert result.metrics.packed_items == 2
+    assert result.optimization.status == "optimal"
+    assert result.optimization.reason == "completed"
+    assert result.optimization.time_limit_ms is None
+    assert ("solver", None) in progress
+    assert all(fraction is None for stage, fraction in progress if stage == "solver")
+
+
+@pytest.mark.parametrize("solver_status", [z3.unknown, z3.unsat])
+def test_solver_without_a_proof_reports_error_without_configuring_timeout(
+    monkeypatch, solver_status
+):
+    class Optimizer:
+        def set_on_model(self, callback):
+            pass
+
+        def check(self):
+            return solver_status
+
+    monkeypatch.setattr(
+        "app.packing.z3_model._build_model",
+        lambda *args: SimpleNamespace(optimizer=Optimizer()),
+    )
+    value = request([box()], [product()], timeout=1)
+    from app.packing.engine import DeterministicPackingEngine
+
+    incumbent = DeterministicPackingEngine().pack(value)
+    messages = []
+    solve(value, box_slots(value), incumbent, 0, lambda *message: messages.append(message))
+    assert messages == [("solver_error", None)]
 
 
 def test_parallel_requests_own_their_solver_contexts_and_preserve_inputs():

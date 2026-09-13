@@ -36,27 +36,11 @@ export function AlgorithmSelector({
         {demo
           ? 'Демо воспроизводит готовые планы. Для выбора алгоритма и нового расчёта переключитесь на «Сервер».'
           : settings.algorithm === 'z3'
-            ? 'Ищет оптимальный план с полной опорой под каждым товаром. Для больших заказов поиск может не завершиться за выбранное время: тогда используется лучший найденный план или резервная эвристика с опорой 100%.'
+            ? 'Ищет оптимальный план с полной опорой под каждым товаром без ограничения времени. Для больших заказов поиск может быть долгим. Расчёт можно отменить.'
             : 'Сравнивает варианты укладки, приоритет — упаковать товары и увеличить общее заполнение. Не гарантирует математический оптимум. Опора — не менее 80% основания.'}
       </p>
       {!demo && (
         <div className="solver-settings">
-          {settings.algorithm === 'z3' && <>
-          <label>
-            Лимит поиска, с
-            <input
-              type="number"
-              min={0.001}
-              step={0.001}
-              value={Number.isFinite(settings.solver_timeout_ms) ? settings.solver_timeout_ms / 1_000 : ''}
-              aria-invalid={Boolean(errors['options.solver_timeout_ms'])}
-              aria-describedby={errors['options.solver_timeout_ms'] ? 'solver-timeout-error' : undefined}
-              onChange={(event) => onChange({ ...settings, solver_timeout_ms: event.target.value === '' ? NaN : Math.round(Number(event.target.value) * 1_000 * 1e6) / 1e6 })}
-            />
-          </label>
-          {errors['options.solver_timeout_ms'] && <p id="solver-timeout-error" className="field-error">Укажите положительное время с точностью до миллисекунды.</p>}
-          <p className="summary-note">Лимит включает предварительную укладку, подготовку модели и поиск Z3. Проверка, остановка процессов и передача результата могут добавить время.</p>
-          </>}
           <label>
             Параллельные процессы
             <input

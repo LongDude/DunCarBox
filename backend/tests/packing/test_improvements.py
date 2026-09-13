@@ -24,16 +24,19 @@ def order(quantity=2):
     )
 
 
-def test_z3_budget_includes_large_initial_heuristic():
+def test_z3_initial_heuristic_remains_cancellable_without_a_time_limit():
     value = order(2000)
-    value = replace(value, options=PackingOptions(algorithm="z3", solver_timeout_ms=10))
+    value = replace(value, options=PackingOptions(algorithm="z3"))
+    cancel = Event()
+    timer = Timer(0.05, cancel.set)
+    timer.start()
     started = monotonic()
-    result = Z3PackingEngine().pack(value)
-    assert monotonic() - started < 2
-    assert result.metrics.total_items == 2000
-    assert result.metrics.packed_items + result.metrics.unpacked_items == 2000
-    assert result.optimization.reason == "time_limit"
-    validate_solution(value, result, Fraction(1))
+    try:
+        with pytest.raises(RuntimeError, match="cancelled"):
+            Z3PackingEngine(cancel_event=cancel).pack(value)
+        assert monotonic() - started < 2
+    finally:
+        timer.cancel()
 
 
 def test_repacking_removes_gaps_without_changing_assignment_or_fill():

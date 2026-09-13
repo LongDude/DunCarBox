@@ -38,6 +38,12 @@ describe('honest optimizer result presentation', () => {
   const result = { ...simple.response, issues: [], algorithm_version: 'z3-packing-v1' };
   const request = { ...simple.request, options: { algorithm: 'z3' as const } };
   const optimization = { status: 'optimal' as const, reason: 'completed' as const, workers: 4, time_limit_ms: 10000, support_ratio: 1 };
+  it('renders an unlimited solver without converting null to a zero-second timeout', () => {
+    const display = optimizationDisplay({ ...result, optimization: { ...optimization, time_limit_ms: null } }, request);
+    expect(display.detail).toContain('без ограничения времени');
+    expect(display.detail).not.toContain('лимит поиска: 0');
+    expect(display.title).toBe('Оптимум доказан в модели Z3');
+  });
   it('distinguishes fixture playback, heuristics, proven optima and selected alternatives', () => {
     expect(optimizationDisplay(simple.response, simple.request).title).toBe('Без нового расчёта');
     expect(optimizationDisplay({ ...result, algorithm_version: 'candidate-packing-v1' }, request)).toMatchObject({ actual: 'Быстрая эвристика', title: 'Оптимум не доказан' });

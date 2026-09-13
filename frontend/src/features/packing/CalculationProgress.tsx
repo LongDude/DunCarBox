@@ -15,7 +15,7 @@ export function CalculationProgress({ progress, elapsedSeconds }: {
   elapsedSeconds: number;
 }) {
   const stage = progress?.stage ?? 'preparing';
-  const fraction = progress?.progress;
+  const fraction = stage === 'solver' ? null : progress?.progress;
   const seconds = Math.floor(Math.max(elapsedSeconds, progress?.elapsed_seconds ?? 0));
   return (
     <div className="calculation-progress">
@@ -23,13 +23,13 @@ export function CalculationProgress({ progress, elapsedSeconds }: {
       <progress
         max={1}
         value={fraction ?? undefined}
-        aria-label={stage === 'solver' ? 'Использовано времени поиска Z3' : 'Прогресс текущего этапа'}
+        aria-label={stage === 'solver' ? 'Поиск оптимального плана Z3' : 'Прогресс текущего этапа'}
       />
       <p className="muted">
-        {fraction != null && `${Math.floor(fraction * 100)}% ${stage === 'solver' ? 'бюджета времени' : 'этапа'} · `}
+        {fraction != null && `${Math.floor(fraction * 100)}% этапа · `}
         Прошло: {Math.floor(seconds / 60)} мин {seconds % 60} с
       </p>
-      {stage === 'solver' && <p className="summary-note">Это расход лимита времени. Лучший план может быть найден раньше.</p>}
+      {stage === 'solver' && <p className="summary-note">Поиск идёт без ограничения времени. Расчёт можно отменить.</p>}
     </div>
   );
 }

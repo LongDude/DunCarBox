@@ -293,8 +293,3 @@
     margin-inline: 12px;
   }
 }
-@media print {
-  .packing-viewer {
-    display: none;
-  }
-}

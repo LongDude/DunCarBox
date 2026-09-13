@@ -7,13 +7,15 @@ const request = () => structuredClone(demoFixtures['simple-order'].request);
 
 describe('contract input validation', () => {
   it('validates optimizer options, integer boundaries and readable backend errors', () => {
+    expect(validateRequest({ ...request(), options: { algorithm: 'z3', solver_workers: 8 } })).toEqual({});
+    expect(validateRequest({ ...request(), options: { algorithm: 'z3', solver_timeout_ms: null, solver_workers: 8 } })).toEqual({});
     expect(validateRequest({ ...request(), options: { algorithm: 'z3', solver_timeout_ms: 1000, solver_workers: 8 } })).toEqual({});
     expect(validateRequest({ ...request(), options: { algorithm: 'z3', solver_timeout_ms: 600000, solver_workers: 32 } })).toEqual({});
     for (const [field, values] of Object.entries({ algorithm: ['other', null], solver_timeout_ms: [0, -1, 1000.1, true, '1000'], solver_workers: [0, -1, 1.5, true, '4'] })) {
       for (const value of values) expect(validateRequest({ ...request(), options: { [field]: value } })[`options.${field}`]).toBeTruthy();
     }
     expect(fieldLabel('body.options.solver_workers')).toBe('Параллельные процессы');
-    expect(apiErrorDetailMessage({ field: 'body.options.solver_timeout_ms', message: 'Input should be greater than 0', type: 'greater_than' })).toContain('положительное время');
+    expect(apiErrorDetailMessage({ field: 'body.options.solver_timeout_ms', message: 'Input should be greater than 0', type: 'greater_than' })).toContain('устаревший параметр');
   });
   it('allows empty box snapshots and preserves zero stock as valid domain constraints', () => {
     const input = request();

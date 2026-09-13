@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { flushSync } from 'react-dom';
 import type { PackedBox, PackingRequest, PackingResult, Product } from '../../types/packing';
 import { BoxIcon } from '../../components/BoxIcon';
 import { Loading } from '../../components/Feedback';
@@ -10,8 +9,6 @@ import {
   getPlacement,
   instanceLabel,
   instructionAt,
-  issueLabels,
-  issueMessage,
   // number,
   optimizationDisplay,
   orientationGuidance,
@@ -24,6 +21,7 @@ import {
   weight,
 } from './presentation';
 import type { PackingPlan } from './presentation';
+import { UnpackedItems } from './UnpackedItems';
 
 const PackingViewer = lazy(() => import('../../three/PackingViewer'));
 
@@ -65,56 +63,6 @@ function Metrics({ plan }: { plan: PackingPlan }) {
         <dd>{planSteps(plan)}</dd>
       </div>
     </dl>
-  );
-}
-
-function Issues({ plan }: { plan: PackingPlan }) {
-  // const issues = plan.issues.filter((issue) => issue.code !== 'DEMO_STUB');
-  return (
-    <>
-      {plan.unpacked_items.length > 0 && (
-        <section className="unpacked-panel" aria-labelledby="unpacked-title">
-          <div className="section-heading">
-            <h2 id="unpacked-title">Осталось без упаковки</h2>
-            <span className="count-badge">{plan.metrics.unpacked_items} шт.</span>
-          </div>
-          <ul className="unpacked-list">
-            {plan.unpacked_items.map((item) => (
-              <li key={item.id}>
-                <div>
-                  <strong>{item.name}</strong>
-                  <span>
-                    Экземпляр {item.unit_index} · {dimensions(item)} · {weight(item.weight)}
-                  </span>
-                </div>
-                <span>
-                  {plan.issues
-                    .filter((issue) => issue.item_instance_ids.includes(item.id))
-                    .map((issue) => issueLabels[issue.code])
-                    .join(' · ') || 'См. причины ниже'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {/*{issues.length > 0 && (
-        <section className="issue-grid" aria-label="Причины и пояснения">
-          {issues.map((issue, index) => (
-            <article
-              key={`${issue.code}-${index}`}
-              className={`issue-card issue-${issue.severity}`}
-            >
-              <span aria-hidden="true">{issue.severity === 'info' ? 'i' : '!'}</span>
-              <div>
-                <h3>{issueLabels[issue.code] ?? 'Пояснение'}</h3>
-                <p>{issueMessage(issue)}</p>
-              </div>
-            </article>
-          ))}
-        </section>
-      )}*/}
-    </>
   );
 }
 
@@ -387,82 +335,6 @@ function BoxWorkspace({
   );
 }
 
-function PrintInstructions({
-  plan,
-  request,
-  orderId,
-  result,
-  alternative,
-}: {
-  plan: PackingPlan;
-  request: PackingRequest;
-  orderId: string;
-  result: PackingResult;
-  alternative: boolean;
-}) {
-  const optimization = optimizationDisplay(result, request, alternative);
-  return (
-    <section className="print-instructions">
-      <h1>DunCarBox · Инструкция по упаковке</h1>
-      <p>
-        Заказ {orderId} · {statusDisplay(plan.status, plan.issues).label}
-      </p>
-      <p>Выбрано: {optimization.requested}. Рассчитано: {optimization.actual}. {optimization.title}. {optimization.detail}</p>
-      <Metrics plan={plan} />
-      {plan.packed_boxes.map((box, index) => (
-        <article key={box.id}>
-          <h2>
-            Коробка {index + 1} / {plan.packed_boxes.length} · {box.name} · {box.id}
-          </h2>
-          <p>
-            {dimensions(box)} · {weight(box.total_weight)} / {weight(box.max_weight)} · заполнение{' '}
-            {percent(box.fill_ratio)}
-          </p>
-          <h3>Содержимое</h3>
-          <ul>
-            {box.placements.map((placement) => (
-              <li key={placement.item_instance_id}>
-                {productFor(placement, request.products)?.name ?? placement.product_id} ·{' '}
-                {instanceLabel(placement, request.products)} · {dimensions(placement.dimensions)}
-              </li>
-            ))}
-          </ul>
-          <h3>Шаги</h3>
-          <ol>
-            {box.instructions.map((instruction) => (
-              <li key={instruction.step}>{instruction.message}</li>
-            ))}
-          </ol>
-        </article>
-      ))}
-      {plan.unpacked_items.length > 0 && (
-        <>
-          <h2>Не упаковано</h2>
-          <ul>
-            {plan.unpacked_items.map((item) => (
-              <li key={item.id}>
-                {item.name} · экземпляр {item.unit_index}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-      {plan.issues.length > 0 && (
-        <>
-          <h2>Причины и пояснения</h2>
-          <ul>
-            {plan.issues.map((issue, index) => (
-              <li key={index}>
-                {issueLabels[issue.code]}: {issueMessage(issue)}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </section>
-  );
-}
-
 export function PackingResultView({
   result,
   request,
@@ -478,24 +350,9 @@ export function PackingResultView({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [boxIndex, setBoxIndex] = useState(0);
-  const [printing, setPrinting] = useState(false);
   const plan = selectPlan(result, selectedId);
   const pageSize = 12;
   const pageStart = Math.floor(boxIndex / pageSize) * pageSize;
-  useEffect(() => {
-    const before = () => flushSync(() => setPrinting(true));
-    const after = () => setPrinting(false);
-    const media = window.matchMedia('print');
-    const changed = () => { if (media.matches) before(); else after(); };
-    window.addEventListener('beforeprint', before);
-    window.addEventListener('afterprint', after);
-    media.addEventListener('change', changed);
-    return () => {
-      window.removeEventListener('beforeprint', before);
-      window.removeEventListener('afterprint', after);
-      media.removeEventListener('change', changed);
-    };
-  }, []);
   const box = plan.packed_boxes[boxIndex];
   const status = statusDisplay(plan.status, plan.issues);
   const optimization = optimizationDisplay(result, request, selectedId !== null);
@@ -525,16 +382,10 @@ export function PackingResultView({
             >
               ↓ Экспорт JSON
             </button>
-            <button type="button" className="secondary-button" onClick={() => {
-              flushSync(() => setPrinting(true));
-              window.print();
-            }}>
-              Печать / PDF
-            </button>
           </div>
         </div>
         
-        <Issues plan={plan} />
+        <UnpackedItems key={selectedId ?? 'recommended'} plan={plan} />
 
         {stale && (
           <div className="notice notice-warning" role="status">
@@ -704,7 +555,6 @@ export function PackingResultView({
           Вес указан без тары. Расчёт не списывает остатки коробок.
         </div>
       </div>
-      {(plan.metrics.total_items <= 1_000 || printing) && <PrintInstructions plan={plan} request={request} orderId={orderId} result={result} alternative={selectedId !== null} />}
     </>
   );
 }

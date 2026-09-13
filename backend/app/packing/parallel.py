@@ -120,6 +120,8 @@ def pack_parallel(request, *, cancel_event=None, progress=None):
                 try:
                     kind, value = connection.recv()
                 except EOFError as error:
+                    # A cancelled child can close its pipe before the next loop check.
+                    control.expired()
                     raise RuntimeError("Heuristic worker exited without a result") from error
                 if kind == "result":
                     results[index] = value

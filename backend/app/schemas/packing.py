@@ -48,7 +48,11 @@ class PackingOptionsSchema(ContractModel):
     include_alternatives: Annotated[bool, Field(strict=True)] = True
     max_alternatives: Annotated[int, Field(strict=True, ge=0, le=5)] = 3
     algorithm: domain.PackingAlgorithm = "heuristic"
-    solver_timeout_ms: PositiveInt = 10_000
+    solver_timeout_ms: PositiveInt | None = Field(
+        default=None,
+        deprecated=True,
+        description="Accepted for saved-order compatibility; Z3 runs without a time limit.",
+    )
     solver_workers: PositiveInt = 4
 
 
@@ -171,7 +175,7 @@ class OptimizationInfoSchema(ContractModel):
     status: Literal["optimal", "feasible", "fallback"]
     reason: Literal["completed", "time_limit", "size_limit", "solver_error"]
     workers: NonNegativeInt
-    time_limit_ms: PositiveInt
+    time_limit_ms: PositiveInt | None
     support_ratio: Ratio = 1.0
 
 

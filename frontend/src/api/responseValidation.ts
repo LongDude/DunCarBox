@@ -115,7 +115,7 @@ export const responseGuards = {
       status: oneOf('optimal', 'feasible', 'fallback'),
       reason: oneOf('completed', 'time_limit', 'size_limit', 'solver_error'),
       workers: integer,
-      time_limit_ms: (value) => integer(value) && (value as number) > 0,
+      time_limit_ms: (value) => value === null || (integer(value) && (value as number) > 0),
       support_ratio: ratio,
     }))),
   }),

@@ -123,9 +123,20 @@
   color: #718a66;
   margin-bottom: 8px;
 }
+.product-list-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
 .product-table-scroll {
   width: 100%;
-  overflow-x: auto;
+  max-height: 440px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border: 1px solid var(--line, #e2e7e0);
   border-radius: 8px;
 }
@@ -136,6 +147,9 @@
   text-align: left;
 }
 .product-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: #f6f8f3;
   color: #63725d;
   padding: 11px 7px;

@@ -10,14 +10,14 @@
   конкурентные запросы и сохранение после перезапуска проверены.
 - Реальный engine → PackingService → API → frontend работает с общими DTO размещений.
   Инструкции главного плана и альтернатив совпадают с placements.
-- React MVP: формы заказа/каталога, 3D, слои, шаги, альтернативы, JSON, печать/PDF.
+- React MVP: формы заказа/каталога, 3D, слои, шаги, альтернативы, экспорт в JSON.
   Явный автономный demo-режим сохранён для показа без backend.
 - Production-образы собраны, PostgreSQL/backend/nginx запущены и healthy.
 - README, CONTRACTS, ARCHITECTURE, UX, PACKING_ENGINE и TASKS приведены к итоговому состоянию.
 - Добавлен Z3 на основе пользовательского test_code.py: совместная полная опора,
   partial packing, четыре лексикографические цели, изолированный портфель процессов.
-- UI выбирает алгоритм, положительное время поиска и число процессов без потолков 60 с / 8; показывает фактический
-  алгоритм, статус доказательства и резервный план. JSON/печать сохраняют metadata.
+- UI выбирает алгоритм и число процессов; Z3 работает без ограничения времени с ручной отменой.
+  Показывает фактический алгоритм, статус доказательства и резервный план. JSON сохраняет metadata.
 
 ## In progress
 
@@ -44,9 +44,9 @@
 ## Contracts frozen
 
 - SOURCE OF TRUTH: [CONTRACTS.md](CONTRACTS.md), API v1.
-- Optional options: algorithm=heuristic, solver_timeout_ms=10000, solver_workers=4.
+- Optional options: algorithm=heuristic, solver_timeout_ms=null (deprecated, игнорируется), solver_workers=4.
   PackingResult.optimization=null для heuristic; Z3 возвращает status/reason/workers/
-  time_limit_ms/support_ratio. Старые fixtures без этих полей поддерживаются.
+  time_limit_ms=null/support_ratio. Старые fixtures без этих полей поддерживаются.
   Новый DTO описан в CONTRACTS; поля placements/instructions не менялись.
 - Целые мм/г; x=length, y=width, z=height; origin — передний левый нижний угол.
   Three.js mapping: (x,y,z) → (x,z,-y), размеры уже ориентированы движком.

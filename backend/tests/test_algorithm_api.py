@@ -43,7 +43,7 @@ def test_real_z3_through_api_and_instructions(
     assert result["status"] == status
     assert result["metrics"]["packed_items"] == packed
     assert result["optimization"]["support_ratio"] == 1
-    assert result["optimization"]["time_limit_ms"] == 10_000
+    assert result["optimization"]["time_limit_ms"] is None
     assert 0 <= result["optimization"]["workers"] <= 2
     assert not any(issue["code"] == "DEMO_STUB" for issue in result["issues"])
     assert_valid_response(order, result)
@@ -69,14 +69,15 @@ def test_switching_algorithms_does_not_change_default_or_catalog(
     assert client.get("/api/v1/boxes").json() == before
 
 
-def test_large_z3_request_returns_explained_valid_fallback(client: TestClient, order: dict) -> None:
-    order["products"][0]["quantity"] = 17
-    order["options"].update(algorithm="z3", solver_timeout_ms=1000, solver_workers=8)
+def test_z3_ignores_saved_order_timeout(client: TestClient, order: dict) -> None:
+    order["products"][0]["quantity"] = 2
+    order["options"].update(algorithm="z3", solver_timeout_ms=1, solver_workers=1)
     response = client.post("/api/v1/pack", json=order)
     assert response.status_code == 200, response.text
     result = response.json()
-    assert result["optimization"]["status"] == "fallback"
-    assert result["optimization"]["reason"] == "time_limit"
+    assert result["optimization"]["status"] == "optimal"
+    assert result["optimization"]["reason"] == "completed"
+    assert result["optimization"]["time_limit_ms"] is None
     assert result["optimization"]["workers"] > 0
-    assert result["metrics"]["total_items"] == 17
+    assert result["metrics"]["total_items"] == result["metrics"]["packed_items"] == 2
     assert_valid_response(order, result)

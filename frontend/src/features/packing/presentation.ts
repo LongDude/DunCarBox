@@ -41,7 +41,10 @@ export function optimizationDisplay(result: PackingResult, request: PackingReque
     size_limit: 'Заказ превышает лимит размера модели Z3.',
     solver_error: 'Оптимизатор Z3 не смог завершить расчёт.',
   }[info.reason];
-  const settings = `Опора ${percent(info.support_ratio)} · процессов: ${info.workers} · лимит поиска: ${number(info.time_limit_ms / 1_000)} с.`;
+  const searchTime = info.time_limit_ms === null
+    ? 'без ограничения времени'
+    : `лимит поиска: ${number(info.time_limit_ms / 1_000)} с`;
+  const settings = `Опора ${percent(info.support_ratio)} · процессов: ${info.workers} · ${searchTime}.`;
   if (info.status === 'fallback') return {
     requested, actual, title: 'Использована резервная эвристика',
     detail: `${reason} Оптимум не доказан. ${settings}`, tone: 'warning',

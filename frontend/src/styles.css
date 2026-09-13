@@ -849,6 +849,12 @@ main {
 .scene-heading .eyebrow {
   font-size: 8px;
 }
+
+.scene-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .dimension-label {
   color: #7d8a6e;
   font-size: 10px;

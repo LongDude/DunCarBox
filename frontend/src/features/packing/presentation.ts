@@ -132,7 +132,7 @@ export function placementGuidance(
   );
   if (leftNeighbor) {
     const name = productFor(leftNeighbor, products)?.name ?? leftNeighbor.product_id;
-    return `Положите вплотную справа от «${name}», на той же высоте. Выровняйте передние грани товаров.${z === 0 ? ' Товар должен стоять на дне.' : ''}`;
+    return `Положите вплотную справа от «${name}», на той же высоте. Выровняйте передние стороны упаковки товаров.${z === 0 ? ' Товар должен стоять на дне.' : ''}`;
   }
   const surface =
     z === 0

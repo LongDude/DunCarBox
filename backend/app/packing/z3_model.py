@@ -1,20 +1,17 @@
-"""Integer packing constraints adapted from the user's root ``test_code.py``.
+"""Exact lazy Z3 optimization; only independently validated plans leave a worker."""
 
-Every worker owns its Z3 context. No Z3 expressions cross process boundaries.
-Full support covers the union of coplanar supporting faces, not a single item.
-"""
-
+import logging
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from fractions import Fraction
+from time import monotonic
 
 import z3
 
 from app.domain.models import (
     BoxType,
     Dimensions,
-    ItemInstance,
     PackedBox,
     PackingRequest,
     PackingResult,
@@ -24,213 +21,12 @@ from app.domain.models import (
 from app.packing.diagnostics import build_issues
 from app.packing.engine import _metrics
 from app.packing.orientations import unique_orientations
-from app.packing.strategies import expand_items, volume
+from app.packing.strategies import volume
 from app.packing.validation import validate_solution
+from app.packing.z3_constraints import Score, _build_model, _Model, add_bound, objective
+from app.packing.z3_support import add_support_cuts, support_violations
 
-
-@dataclass(slots=True)
-class _Model:
-    optimizer: z3.Optimize
-    items: tuple[ItemInstance, ...]
-    boxes: tuple[BoxType, ...]
-    box: list
-    x: list
-    y: list
-    z: list
-    dx: list
-    dy: list
-    dz: list
-    objectives: list
-
-
-def box_slots(request: PackingRequest) -> tuple[BoxType, ...]:
-    """Only compatible cartons are useful; at most N copies of each are needed."""
-    items = expand_items(request)
-    slots = []
-    for box in sorted(request.boxes, key=lambda value: value.id):
-        if any(
-            item.weight <= box.max_weight
-            and any(
-                size.length <= box.length and size.width <= box.width and size.height <= box.height
-                for _, size in unique_orientations(
-                    Dimensions(item.length, item.width, item.height), item.allow_rotation
-                )
-            )
-            for item in items
-        ):
-            slots.extend([box] * min(box.available_count, len(items)))
-    return tuple(slots)
-
-
-def _full_support(model: _Model) -> None:
-    """Check every potential uncovered cell's lower-left corner symbolically.
-
-    A supporting face can introduce an uncovered cell only at its right/back
-    edge or at the supported item's own left/front edge. Thus O(n^2) candidate
-    points per item suffice, independently of box dimensions in millimetres.
-    """
-    opt, box, x, y, z = model.optimizer, model.box, model.x, model.y, model.z
-    X = [x[i] + model.dx[i] for i in range(len(box))]
-    Y = [y[i] + model.dy[i] for i in range(len(box))]
-    Z = [z[i] + model.dz[i] for i in range(len(box))]
-    for i in range(len(box)):
-        others = [j for j in range(len(box)) if j != i]
-        if not others:
-            opt.add(z3.Implies(box[i] >= 0, z[i] == 0))
-            continue
-        touching = [
-            z3.And(box[i] >= 0, box[j] >= 0, box[i] == box[j], Z[j] == z[i]) for j in others
-        ]
-        xs, ys = [x[i]] + [X[j] for j in others], [y[i]] + [Y[j] for j in others]
-        active = [z3.BoolVal(True, ctx=opt.ctx)] + touching
-        inside_x = [z3.And(x[i] <= p, p < X[i]) for p in xs]
-        inside_y = [z3.And(y[i] <= p, p < Y[i]) for p in ys]
-        covered_x = [[z3.And(x[j] <= p, p < X[j]) for j in others] for p in xs]
-        covered_y = [[z3.And(y[j] <= p, p < Y[j]) for j in others] for p in ys]
-        for a in range(len(xs)):
-            for b in range(len(ys)):
-                covered = z3.Or(
-                    *[
-                        z3.And(touching[k], covered_x[a][k], covered_y[b][k])
-                        for k in range(len(others))
-                    ]
-                )
-                opt.add(
-                    z3.Implies(
-                        z3.And(
-                            box[i] >= 0, z[i] > 0, active[a], active[b], inside_x[a], inside_y[b]
-                        ),
-                        covered,
-                    )
-                )
-
-
-def _build_model(
-    request: PackingRequest,
-    slots: tuple[BoxType, ...],
-    ctx: z3.Context,
-    variant: int = 0,
-    incumbent: PackingResult | None = None,
-) -> _Model:
-    items = expand_items(request)
-    opt = z3.Optimize(ctx=ctx)
-    opt.set(priority="lex")
-    count = len(items)
-    variables = [
-        [z3.Int(f"v{variant}_{name}_{i}", ctx) for i in range(count)]
-        for name in ("box", "x", "y", "z", "dx", "dy", "dz")
-    ]
-    model = _Model(opt, items, slots, *variables, [])
-    box, x, y, z, dx, dy, dz = variables
-    used = [z3.Bool(f"used_{j}", ctx) for j in range(len(slots))]
-
-    # Different variable/assertion orders give independent solver search paths.
-    indices = list(range(count))
-    if variant % 2:
-        indices.reverse()
-    for i in indices:
-        item = items[i]
-        rotations = unique_orientations(
-            Dimensions(item.length, item.width, item.height), item.allow_rotation
-        )
-        if variant % 2:
-            rotations = tuple(reversed(rotations))
-        opt.add(x[i] >= 0, y[i] >= 0, z[i] >= 0)
-        opt.add(
-            z3.Or(
-                *[
-                    z3.And(dx[i] == size.length, dy[i] == size.width, dz[i] == size.height)
-                    for _, size in rotations
-                ]
-            )
-        )
-        candidates = [box[i] == -1]
-        for j, carton in enumerate(slots):
-            if item.weight <= carton.max_weight and any(
-                size.length <= carton.length
-                and size.width <= carton.width
-                and size.height <= carton.height
-                for _, size in rotations
-            ):
-                candidates.append(box[i] == j)
-                opt.add(
-                    z3.Implies(
-                        box[i] == j,
-                        z3.And(
-                            x[i] + dx[i] <= carton.length,
-                            y[i] + dy[i] <= carton.width,
-                            z[i] + dz[i] <= carton.height,
-                        ),
-                    )
-                )
-        opt.add(z3.Or(*candidates))
-        opt.add(z3.Implies(box[i] == -1, z3.And(x[i] == 0, y[i] == 0, z[i] == 0)))
-        # Identical units are interchangeable, so packed units form an ID prefix.
-        if i and items[i - 1].product_id == item.product_id:
-            opt.add(z3.Implies(box[i] >= 0, z3.And(box[i - 1] >= 0, box[i - 1] <= box[i])))
-
-    for j, carton in enumerate(slots):
-        assigned = [box[i] == j for i in range(count)]
-        opt.add(used[j] == z3.Or(*assigned))
-        opt.add(
-            z3.Sum(*[z3.If(assigned[i], items[i].weight, 0) for i in range(count)])
-            <= carton.max_weight
-        )
-        opt.add(
-            z3.Sum(*[z3.If(assigned[i], volume(items[i]), 0) for i in range(count)])
-            <= volume(carton)
-        )
-        if j and slots[j - 1].id == carton.id:
-            opt.add(z3.Implies(used[j], used[j - 1]))
-
-    for i in range(count):
-        for j in range(i):
-            opt.add(
-                z3.Or(
-                    box[i] < 0,
-                    box[j] < 0,
-                    box[i] != box[j],
-                    x[i] + dx[i] <= x[j],
-                    x[j] + dx[j] <= x[i],
-                    y[i] + dy[i] <= y[j],
-                    y[j] + dy[j] <= y[i],
-                    z[i] + dz[i] <= z[j],
-                    z[j] + dz[j] <= z[i],
-                )
-            )
-    _full_support(model)
-
-    packed_count = z3.Sum(*[z3.If(b >= 0, 1, 0) for b in box])
-    packed_volume = z3.Sum(*[z3.If(box[i] >= 0, volume(items[i]), 0) for i in range(count)])
-    used_count = z3.Sum(*[z3.If(value, 1, 0) for value in used])
-    box_volume = z3.Sum(*[z3.If(used[j], volume(slots[j]), 0) for j in range(len(slots))])
-    if incumbent is not None:
-        # Safe lexicographic bound: a validated full-support plan already exists.
-        metrics = incumbent.metrics
-        opt.add(
-            z3.Or(
-                packed_count > metrics.packed_items,
-                z3.And(packed_count == metrics.packed_items, packed_volume > metrics.used_volume),
-                z3.And(
-                    packed_count == metrics.packed_items,
-                    packed_volume == metrics.used_volume,
-                    box_volume < metrics.total_box_volume,
-                ),
-                z3.And(
-                    packed_count == metrics.packed_items,
-                    packed_volume == metrics.used_volume,
-                    box_volume == metrics.total_box_volume,
-                    used_count <= metrics.boxes_used,
-                ),
-            )
-        )
-    model.objectives = [
-        opt.maximize(packed_count),
-        opt.maximize(packed_volume),
-        opt.minimize(box_volume),
-        opt.minimize(used_count),
-    ]
-    return model
+_LOGGER = logging.getLogger(__name__)
 
 
 def _extract(request: PackingRequest, problem: _Model, values: z3.ModelRef) -> PackingResult:
@@ -242,7 +38,7 @@ def _extract(request: PackingRequest, problem: _Model, values: z3.ModelRef) -> P
         slot = integer(problem.box[i])
         if slot < 0:
             continue
-        if slot >= len(problem.boxes):
+        if slot >= len(problem.carton_type):
             raise ValueError("Solver returned an invalid box assignment")
         dimensions = Dimensions(
             integer(problem.dx[i]), integer(problem.dy[i]), integer(problem.dz[i])
@@ -268,7 +64,10 @@ def _extract(request: PackingRequest, problem: _Model, values: z3.ModelRef) -> P
     copies: Counter = Counter()
     by_id = {item.id: item for item in problem.items}
     for slot, placements in sorted(groups.items()):
-        carton = problem.boxes[slot]
+        kind = integer(problem.carton_type[slot])
+        if not 0 <= kind < len(problem.boxes):
+            raise ValueError("Solver returned an invalid carton type")
+        carton = problem.boxes[kind]
         copies[carton.id] += 1
         ordered = sorted(
             placements,
@@ -325,38 +124,97 @@ def _extract(request: PackingRequest, problem: _Model, values: z3.ModelRef) -> P
 
 def solve(
     request: PackingRequest,
-    slots: tuple[BoxType, ...],
+    types: tuple[BoxType, ...],
     incumbent: PackingResult,
     variant: int,
     emit: Callable[[str, PackingResult | None], None],
+    receive_bound: Callable[[], Score | None] | None = None,
 ) -> None:
-    """Run inside a dedicated process, reporting only validated plain dataclasses."""
-    # Global Z3 settings are isolated by the owning process, never shared between
-    # simultaneous requests. Each portfolio member gets a distinct fixed seed.
+    """Refine a relaxation until its proved optimum passes the exact validator.
+
+    Model callbacks only inspect/copy values and request an interrupt. Assertions
+    are added after check() returns; Z3 is never mutated reentrantly in a callback.
+    An internal refinement interrupt is not a deadline and is not an error.
+    """
     z3.set_param("smt.random_seed", variant + 1)
     ctx = z3.Context()
-    problem = _build_model(request, slots, ctx, variant, incumbent)
+    started = monotonic()
+    problem = _build_model(request, types, ctx, variant, incumbent)
+    _LOGGER.info("Z3 worker %s model built in %.3fs", variant, monotonic() - started)
+    best_score = objective(incumbent)
+    applied_score = best_score
+    pending_points = set()
+    pending_score = None
+    rounds = 0
 
-    def on_model(model: z3.ModelRef) -> None:
-        # Optimize can report intermediate models while proving optimality.
-        # Never serialize a model that fails the independent geometry validator.
+    def read_bound() -> None:
+        nonlocal pending_score
+        score = receive_bound() if receive_bound is not None else None
+        if score is not None and score < (pending_score or applied_score):
+            pending_score = score
+
+    def on_model(values: z3.ModelRef) -> None:
+        nonlocal best_score
         try:
-            candidate = _extract(request, problem, model)
+            violations = support_violations(problem, values)
+            pending_points.update(violations - problem.support_points)
+            if not violations:
+                candidate = _extract(request, problem, values)
+                score = objective(candidate)
+                if score < best_score:
+                    best_score = score
+                    emit("feasible", candidate)
+            read_bound()
+            if pending_points or pending_score is not None:
+                ctx.interrupt()
         except (ValueError, z3.Z3Exception, StopIteration):
+            # Early Optimize callbacks may not describe a complete hard model.
+            # The final model is checked again outside the callback.
             return
-        emit("feasible", candidate)
 
-    problem.optimizer.set_on_model(on_model)
-    status = problem.optimizer.check()
-    if status == z3.sat:
-        result = _extract(request, problem, problem.optimizer.model())
-        proved = all(objective.lower().eq(objective.upper()) for objective in problem.objectives)
-        emit("optimal" if proved else "solver_error", result)
-    elif status == z3.unknown:
-        # ``unknown`` means neither optimal nor impossible. The callback may
-        # already have sent a feasible incumbent; otherwise the parent has one.
-        emit("solver_error", None)
-    else:
-        # The validated incumbent makes this model satisfiable. UNSAT therefore
-        # indicates a modelling/solver error, never proof of packing impossibility.
-        emit("solver_error", None)
+    try:
+        problem.optimizer.set_on_model(on_model)
+        while True:
+            read_bound()
+            next_score = min(best_score, pending_score or applied_score)
+            if next_score < applied_score:
+                applied_score = next_score
+                best_score = min(best_score, applied_score)
+                add_bound(problem, applied_score)
+            pending_score = None
+            rounds += 1
+            status = problem.optimizer.check()
+            if pending_points:
+                add_support_cuts(problem, pending_points)
+                pending_points.clear()
+                continue
+            if pending_score is not None:
+                continue
+            if status != z3.sat:
+                # The inclusive bound has a verified full-support witness. UNSAT is
+                # a model error; UNKNOWN without our own refinement is not a proof.
+                emit("solver_error", None)
+                return
+            values = problem.optimizer.model()
+            violations = support_violations(problem, values)
+            if violations:
+                if not add_support_cuts(problem, violations):
+                    emit("solver_error", None)
+                    return
+                continue
+            result = _extract(request, problem, values)
+            proved = all(handle.lower().eq(handle.upper()) for handle in problem.objectives)
+            _LOGGER.info(
+                "Z3 worker %s finished in %.3fs, %s rounds, %s support cuts; %s",
+                variant,
+                monotonic() - started,
+                rounds,
+                len(problem.support_points),
+                problem.optimizer.statistics(),
+            )
+            emit("optimal" if proved else "solver_error", result)
+            return
+    finally:
+        # Z3's callback registry retains the closure. Release its model reference
+        # so completed in-process solves do not retain entire solver contexts.
+        problem = None

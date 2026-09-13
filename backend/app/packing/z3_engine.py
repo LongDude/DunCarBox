@@ -10,6 +10,7 @@ import os
 from dataclasses import replace
 from fractions import Fraction
 from multiprocessing.connection import Connection, wait
+from queue import Empty, Full
 from threading import BoundedSemaphore
 from time import monotonic
 from typing import Literal
@@ -56,6 +57,7 @@ def _worker(
     slots: tuple,
     incumbent: PackingResult,
     variant: int,
+    updates=None,
 ) -> None:
     """Spawn target; each process imports and owns its own Z3 runtime/context."""
     try:
@@ -64,7 +66,18 @@ def _worker(
         def emit(status: str, result: PackingResult | None) -> None:
             connection.send((status, result))
 
-        solve(request, slots, incumbent, variant, emit)
+        def receive_bound():
+            score = None
+            if updates is not None:
+                while True:
+                    try:
+                        received = updates.get_nowait()
+                    except Empty:
+                        break
+                    score = received if score is None else min(score, received)
+            return score
+
+        solve(request, slots, incumbent, variant, emit, receive_bound)
     except Exception:
         _LOGGER.exception("Z3 packing worker failed")
         # Broken pipes occur if the controller has already stopped this worker.
@@ -74,6 +87,21 @@ def _worker(
             pass
     finally:
         connection.close()
+
+
+def _publish_bound(queues, score) -> None:
+    """Bounded, nonblocking mailboxes: a slow worker cannot stall cancellation."""
+    for updates in queues:
+        try:
+            # Replace an unread older bound when possible. Queue feeder races
+            # may leave a previous bound for one round, which is still safe.
+            updates.get_nowait()
+        except Empty:
+            pass
+        try:
+            updates.put_nowait(score)
+        except Full:
+            pass
 
 
 class Z3PackingEngine:
@@ -125,13 +153,14 @@ class Z3PackingEngine:
             return completed
 
         # This import remains lazy so heuristic-only requests do not load Z3.
-        from app.packing.z3_model import box_slots
+        from app.packing.z3_constraints import compatible_box_types
 
-        slots = box_slots(request)
+        slots = compatible_box_types(request)
         if not slots or not baseline.metrics.total_items:
             return finish(baseline, "optimal", "completed", 0)
         context = multiprocessing.get_context("spawn")
         running: list[tuple[multiprocessing.Process, Connection]] = []
+        bound_queues = []
         acquired = 0
         best = baseline
         best_from_solver = False
@@ -143,17 +172,17 @@ class Z3PackingEngine:
                 if self._cancelled():
                     break
                 granted = _WORKER_SLOTS.acquire(blocking=False)
-                while (
-                    not granted and not running and not self._cancelled()
-                ):
+                while not granted and not running and not self._cancelled():
                     granted = _WORKER_SLOTS.acquire(timeout=0.1)
                 if not granted:
                     break
                 acquired += 1
                 receiver, sender = context.Pipe(duplex=False)
+                updates = context.Queue(maxsize=1)
+                bound_queues.append(updates)
                 process = context.Process(
                     target=_worker,
-                    args=(sender, request, slots, baseline, variant),
+                    args=(sender, request, slots, baseline, variant, updates),
                     name=f"duncarbox-z3-{variant}",
                     daemon=True,
                 )
@@ -187,8 +216,11 @@ class Z3PackingEngine:
                             _objective(best),
                             solution_signature(best.packed_boxes),
                         ):
+                            improved = _objective(candidate) < _objective(best)
                             best = candidate
                             best_from_solver = True
+                            if improved:
+                                _publish_bound(bound_queues, _objective(best))
                     if status == "optimal" and candidate is not None:
                         proof = _objective(candidate)
                     if status != "feasible":
@@ -208,6 +240,9 @@ class Z3PackingEngine:
                 process.close()
             for _ in range(acquired):
                 _WORKER_SLOTS.release()
+            for updates in bound_queues:
+                updates.cancel_join_thread()
+                updates.close()
 
         if self._cancelled():
             raise RuntimeError("Packing cancelled")

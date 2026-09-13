@@ -17,8 +17,10 @@ from app.packing.diagnostics import build_issues
 from app.packing.engine import _metrics
 from app.packing.strategies import expand_items
 from app.packing.validation import validate_solution
+from app.packing.z3_constraints import _build_model, compatible_box_types
 from app.packing.z3_engine import Z3PackingEngine
-from app.packing.z3_model import _build_model, box_slots, solve
+from app.packing.z3_model import solve
+from app.packing.z3_support import full_support
 
 
 def box(identifier="box", size=(10, 10, 10), weight=100, stock=1):
@@ -145,7 +147,8 @@ def test_union_of_multiple_support_faces_and_overhang(support_width, second_x, e
             product("top", size=(10, 4, 2)),
         ],
     )
-    model = _build_model(value, box_slots(value), z3.Context())
+    model = _build_model(value, compatible_box_types(value), z3.Context())
+    full_support(model)
     for index, (x, y, z) in enumerate([(0, 0, 0), (second_x, 0, 0), (0, 0, 2)]):
         model.optimizer.add(
             model.box[index] == 0, model.x[index] == x, model.y[index] == y, model.z[index] == z
@@ -156,7 +159,8 @@ def test_union_of_multiple_support_faces_and_overhang(support_width, second_x, e
 
 def test_unpacked_item_cannot_support_a_packed_item():
     value = request([box(size=(10, 10, 20))], [product(quantity=2)])
-    model = _build_model(value, box_slots(value), z3.Context())
+    model = _build_model(value, compatible_box_types(value), z3.Context())
+    full_support(model)
     model.optimizer.add(model.box[0] == 0, model.z[0] == 10, model.box[1] == -1)
     model.optimizer.set(timeout=3000)
     assert model.optimizer.check() == z3.unsat
@@ -339,7 +343,9 @@ def test_solver_without_a_proof_reports_error_without_configuring_timeout(
 
     incumbent = DeterministicPackingEngine().pack(value)
     messages = []
-    solve(value, box_slots(value), incumbent, 0, lambda *message: messages.append(message))
+    solve(
+        value, compatible_box_types(value), incumbent, 0, lambda *message: messages.append(message)
+    )
     assert messages == [("solver_error", None)]
 
 

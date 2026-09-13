@@ -126,7 +126,7 @@ export type PackingAlgorithm = 'heuristic' | 'z3';
 
 export interface PackingOptimization {
   status: 'optimal' | 'feasible' | 'fallback';
-  reason: 'completed' | 'time_limit' | 'size_limit' | 'solver_error';
+  reason: 'completed' | 'time_limit' | 'size_limit' | 'resource_limit' | 'solver_error';
   workers: number;
   time_limit_ms: number | null;
   support_ratio: number;

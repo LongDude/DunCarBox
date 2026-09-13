@@ -161,7 +161,7 @@ export function ProductEditor({
                   </th>
                 ))}
                 <th scope="col" className="product-rotation">
-                  Поворот<br />разрешён
+                  Наклон<br />разрешён
                 </th>
                 <th scope="col">
                   <span className="sr-only">Действия</span>
@@ -239,7 +239,8 @@ export function ProductEditor({
                         type="checkbox"
                         checked={product.allow_rotation}
                         disabled={disabled}
-                        aria-label={`Разрешить поворот товара ${index + 1}`}
+                        aria-label={`Разрешить наклон товара ${index + 1}`}
+                        title="Поворот на дне разрешён всегда. Эта настройка разрешает класть товар на другую грань."
                         onChange={(event) =>
                           update(product.id, { allow_rotation: event.target.checked })
                         }

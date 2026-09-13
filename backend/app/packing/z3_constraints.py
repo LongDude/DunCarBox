@@ -2,25 +2,21 @@
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from fractions import Fraction
 
 import z3
 
 from app.domain.models import BoxType, Dimensions, ItemInstance, PackingRequest, PackingResult
 from app.packing.orientations import unique_orientations
+from app.packing.scoring import packing_objective
 from app.packing.strategies import expand_items, volume
 from app.packing.z3_support import SupportPoint
 
-Score = tuple[int, int, int, int]
+Score = tuple[Fraction, int, int, int]
 
 
 def objective(result: PackingResult) -> Score:
-    metrics = result.metrics
-    return (
-        -metrics.packed_items,
-        -metrics.used_volume,
-        metrics.total_box_volume,
-        metrics.boxes_used,
-    )
+    return packing_objective(result.metrics)
 
 
 @dataclass(slots=True)
@@ -39,6 +35,8 @@ class _Model:
     scores: list
     objectives: list = field(default_factory=list)
     support_points: set[SupportPoint] = field(default_factory=set)
+    ratio: Fraction = Fraction(0)
+    objective_scores: list = field(default_factory=list)
 
 
 def compatible_box_types(request: PackingRequest) -> tuple[BoxType, ...]:
@@ -82,17 +80,44 @@ def _lex_le(left, right):
 def add_bound(model: _Model, score: Score) -> None:
     """Inclusive lexicographic bound: a verified feasible witness remains."""
     opt, ctx = model.optimizer, model.optimizer.ctx
-    opt.add(_lex_le(model.scores, score))
-    if -score[0] == len(model.items):
-        # All units packed proves the first two objectives outright. The box
-        # volume bound is unsafe for a partial incumbent, so only use it here.
-        opt.add(*[slot >= 0 for slot in model.box])
-        opt.add(model.scores[2] <= score[2])
+    ratio = -score[0]
+    gain = -model.scores[1] * ratio.denominator - model.scores[2] * ratio.numerator
+    opt.add(_lex_le((-gain, model.scores[0], model.scores[1], model.scores[3]), (0, *score[1:])))
+    if ratio > 0:
+        # Even packing the entire order cannot improve this fill above this
+        # denominator. This bound also remains safe for partial incumbents.
+        max_volume = sum(map(volume, model.items)) * ratio.denominator // ratio.numerator
+        opt.add(model.scores[2] <= max_volume)
         for t, carton in enumerate(model.boxes):
             opt.add(
                 _sum((z3.If(kind == t, 1, 0) for kind in model.carton_type), ctx)
-                <= min(carton.available_count, score[2] // volume(carton))
+                <= min(carton.available_count, max_volume // volume(carton))
             )
+    if ratio == 1 and -score[1] == len(model.items):
+        # Only 100% fill AND a full order prove the first three objectives.
+        # A full but loosely packed incumbent must still allow leaving items out.
+        opt.add(*[slot >= 0 for slot in model.box])
+        opt.add(model.scores[2] == -score[2])
+
+
+def set_objectives(model: _Model, ratio: Fraction) -> None:
+    """One exact Dinkelbach step: maximize q*used_volume - p*box_volume.
+
+    A zero optimum proves the best ratio p/q; positive gain requires another
+    step. All objectives remain bounded integer linear arithmetic.
+    """
+    previous = model.optimizer
+    opt = z3.Optimize(ctx=previous.ctx)
+    opt.set(priority="lex")
+    opt.add(*previous.assertions())
+    model.optimizer = opt
+    model.ratio = ratio
+    gain = -model.scores[1] * ratio.denominator - model.scores[2] * ratio.numerator
+    # Since V >= U and U <= order_volume, gain <= (q-p)*order_volume.
+    # At 100% fill this explicitly proves that the primary gain cannot be positive.
+    opt.add(-gain >= -(ratio.denominator - ratio.numerator) * sum(map(volume, model.items)))
+    model.objective_scores = [-gain, model.scores[0], model.scores[1], model.scores[3]]
+    model.objectives = [opt.minimize(score) for score in model.objective_scores]
 
 
 def _seed(model: _Model, incumbent: PackingResult) -> None:
@@ -165,12 +190,20 @@ def _build_model(
 ) -> _Model:
     items = expand_items(request)
     count = len(items)
-    full = incumbent is not None and incumbent.metrics.packed_items == count
-    if full:
-        types = tuple(box for box in types if volume(box) <= incumbent.metrics.total_box_volume)
+    full = (
+        incumbent is not None
+        and incumbent.metrics.packed_items == count
+        and incumbent.metrics.used_volume == incumbent.metrics.total_box_volume
+    )
+    ratio = -objective(incumbent)[0] if incumbent is not None else Fraction(0)
+    max_volume = (
+        sum(map(volume, items)) * ratio.denominator // ratio.numerator if ratio > 0 else None
+    )
+    if max_volume is not None:
+        types = tuple(box for box in types if volume(box) <= max_volume)
     capacity = min(count, sum(box.available_count for box in types))
-    if full and types:
-        capacity = min(capacity, incumbent.metrics.total_box_volume // min(map(volume, types)))
+    if max_volume is not None and types:
+        capacity = min(capacity, max_volume // min(map(volume, types)))
     opt = z3.Optimize(ctx=ctx)
     opt.set(priority="lex")
     variables = [
@@ -186,15 +219,44 @@ def _build_model(
     ]
     lengths, widths, heights, weights, volumes = attributes
     model = _Model(opt, items, types, *variables, kinds, [])
-    largest_volume = max(map(volume, types), default=0)
-    largest_weight = max((carton.max_weight for carton in types), default=0)
+    rotations_by_product = {
+        item.product_id: unique_orientations(
+            Dimensions(item.length, item.width, item.height), item.allow_rotation
+        )
+        for item in items
+    }
+    fitting = {
+        (pid, t): tuple(
+            size
+            for _, size in rotations
+            if size.length <= carton.length
+            and size.width <= carton.width
+            and size.height <= carton.height
+        )
+        for pid, rotations in rotations_by_product.items()
+        for t, carton in enumerate(types)
+    }
+    pairs = {}
+
+    def pair_fits(item, other):
+        key = tuple(sorted((item.product_id, other.product_id)))
+        if key not in pairs:
+            pairs[key] = any(
+                item.weight + other.weight <= carton.max_weight
+                and volume(item) + volume(other) <= volume(carton)
+                and any(
+                    a.length + b.length <= carton.length
+                    or a.width + b.width <= carton.width
+                    or a.height + b.height <= carton.height
+                    for a in fitting[item.product_id, t]
+                    for b in fitting[other.product_id, t]
+                )
+                for t, carton in enumerate(types)
+            )
+        return pairs[key]
+
     can_share = [
-        [
-            i != j
-            and volume(item) + volume(other) <= largest_volume
-            and item.weight + other.weight <= largest_weight
-            for j, other in enumerate(items)
-        ]
+        [i != j and pair_fits(item, other) for j, other in enumerate(items)]
         for i, item in enumerate(items)
     ]
     for j, kind in enumerate(kinds):
@@ -234,9 +296,7 @@ def _build_model(
     indices = range(count) if variant % 2 == 0 else reversed(range(count))
     for i in indices:
         item = items[i]
-        rotations = unique_orientations(
-            Dimensions(item.length, item.width, item.height), item.allow_rotation
-        )
+        rotations = rotations_by_product[item.product_id]
         if variant % 2:
             rotations = tuple(reversed(rotations))
         opt.add(box[i] >= -1, box[i] < capacity, x[i] >= 0, y[i] >= 0, z[i] >= 0)
@@ -250,6 +310,13 @@ def _build_model(
         )
         opt.add(z3.Implies(box[i] == -1, z3.And(x[i] == 0, y[i] == 0, z[i] == 0)))
         for j in range(capacity):
+            compatible = [
+                t
+                for t, carton in enumerate(types)
+                if fitting[item.product_id, t] and item.weight <= carton.max_weight
+            ]
+            if len(compatible) < len(types):
+                opt.add(z3.Implies(box[i] == j, z3.Or(*[kinds[j] == t for t in compatible])))
             opt.add(
                 z3.Implies(
                     box[i] == j,
@@ -329,8 +396,21 @@ def _build_model(
         _sum(volumes, ctx),
         _sum((z3.If(kind >= 0, 1, 0) for kind in kinds), ctx),
     ]
+    opt.add(model.scores[2] >= -model.scores[1])
+    if types:
+        packed_weight = _sum(
+            (z3.If(box[i] >= 0, item.weight, 0) for i, item in enumerate(items)), ctx
+        )
+        opt.add(model.scores[3] * max(map(volume, types)) >= -model.scores[1])
+        opt.add(model.scores[3] * max(carton.max_weight for carton in types) >= packed_weight)
+        density = min(
+            (Fraction(volume(carton), carton.max_weight) for carton in types if carton.max_weight),
+            default=Fraction(0),
+        )
+        opt.add(model.scores[2] * density.denominator >= packed_weight * density.numerator)
     if incumbent is not None:
         add_bound(model, objective(incumbent))
+    set_objectives(model, -objective(incumbent)[0] if incumbent is not None else Fraction(0))
+    if incumbent is not None:
         _seed(model, incumbent)
-    model.objectives = [opt.minimize(score) for score in model.scores]
     return model

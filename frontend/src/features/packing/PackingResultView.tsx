@@ -238,7 +238,7 @@ function BoxWorkspace({
                   <h3>Ориентация товара</h3>
                   <p>{orientationGuidance(placement)}</p>
                   {product && !product.allow_rotation && (
-                    <span className="rotation-note">Поворот запрещён · исходное положение</span>
+                    <span className="rotation-note">Только на дне · поворот вокруг вертикальной оси разрешён</span>
                   )}
                 </div>
               </div>

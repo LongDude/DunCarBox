@@ -38,7 +38,13 @@ class ProductSchema(ContractModel):
     height: Dimension
     weight: Weight
     quantity: PositiveInt
-    allow_rotation: Annotated[bool, Field(strict=True)] = True
+    allow_rotation: Annotated[
+        bool,
+        Field(
+            strict=True,
+            description="Allow changing the base; turning on the base is always allowed.",
+        ),
+    ] = True
 
     def to_domain(self) -> domain.Product:
         return domain.Product(**self.model_dump())
@@ -173,7 +179,7 @@ class PackingAlternativeSchema(ContractModel):
 
 class OptimizationInfoSchema(ContractModel):
     status: Literal["optimal", "feasible", "fallback"]
-    reason: Literal["completed", "time_limit", "size_limit", "solver_error"]
+    reason: Literal["completed", "time_limit", "size_limit", "resource_limit", "solver_error"]
     workers: NonNegativeInt
     time_limit_ms: PositiveInt | None
     support_ratio: Ratio = 1.0

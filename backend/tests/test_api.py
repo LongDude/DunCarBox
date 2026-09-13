@@ -65,7 +65,8 @@ def test_demo_api_is_deterministic_and_physically_valid(
     result = first.json()
     assert result["status"] == expected["status"]
     assert result["metrics"]["packed_items"] == expected["metrics"]["packed_items"]
-    assert result["metrics"]["boxes_used"] == expected["metrics"]["boxes_used"]
+    # Authored demo layouts predate upright yaw and fill-first search.
+    assert result["metrics"]["fill_ratio"] >= expected["metrics"]["fill_ratio"]
     assert result["algorithm_version"] == "candidate-packing-v1"
     assert not any(issue["code"] == "DEMO_STUB" for issue in result["issues"])
     validate_solution(

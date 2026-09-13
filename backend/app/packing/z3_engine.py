@@ -1,6 +1,6 @@
 """Cancellable Z3 portfolio with a validated full-support heuristic incumbent.
 
-Search has no time limit. Worker limits apply across concurrent requests in
+Search has a finite cumulative Z3 work budget. Worker limits apply across concurrent requests in
 this API process; cancellation also interrupts waiting for an available worker.
 """
 
@@ -20,7 +20,7 @@ from app.packing.control import SearchControl
 from app.packing.engine import DeterministicPackingEngine
 from app.packing.options import EngineOptions
 from app.packing.repacking import repack_cartons
-from app.packing.scoring import solution_signature
+from app.packing.scoring import packing_objective, solution_signature
 from app.packing.strategies import STRATEGIES
 from app.packing.validation import validate_solution
 
@@ -41,14 +41,8 @@ _FULL_SUPPORT = Fraction(1)
 _LOGGER = logging.getLogger(__name__)
 
 
-def _objective(result: PackingResult) -> tuple[int, int, int, int]:
-    metrics = result.metrics
-    return (
-        -metrics.packed_items,
-        -metrics.used_volume,
-        metrics.total_box_volume,
-        metrics.boxes_used,
-    )
+def _objective(result: PackingResult) -> tuple[Fraction, int, int, int]:
+    return packing_objective(result.metrics)
 
 
 def _worker(
@@ -143,7 +137,7 @@ class Z3PackingEngine:
         def finish(
             result: PackingResult,
             status: Literal["optimal", "feasible", "fallback"],
-            reason: Literal["completed", "solver_error"],
+            reason: Literal["completed", "resource_limit", "solver_error"],
             workers: int,
         ) -> PackingResult:
             result = repack_cartons(request, result, control)
@@ -168,7 +162,8 @@ class Z3PackingEngine:
         acquired = 0
         best = baseline
         best_from_solver = False
-        proof: tuple[int, int, int, int] | None = None
+        proof: tuple[Fraction, int, int, int] | None = None
+        resource_limited = False
         # There is no known completion fraction for an unlimited solver search.
         control.report("solver", None)
         try:
@@ -227,6 +222,7 @@ class Z3PackingEngine:
                                 _publish_bound(bound_queues, _objective(best))
                     if status == "optimal" and candidate is not None:
                         proof = _objective(candidate)
+                    resource_limited |= status == "resource_limit"
                     if status != "feasible":
                         active.remove(connection)
         finally:
@@ -255,5 +251,8 @@ class Z3PackingEngine:
             # objective also proves that independently validated plan optimal.
             return finish(best, "optimal", "completed", len(running))
         return finish(
-            best, "feasible" if best_from_solver else "fallback", "solver_error", len(running)
+            best,
+            "feasible" if best_from_solver else "fallback",
+            "resource_limit" if resource_limited else "solver_error",
+            len(running),
         )

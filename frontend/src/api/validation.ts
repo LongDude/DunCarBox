@@ -74,7 +74,7 @@ function validateEntry(value: unknown, kind: 'box' | 'product'): FieldErrors {
     value.allow_rotation !== undefined &&
     typeof value.allow_rotation !== 'boolean'
   ) {
-    errors.allow_rotation = 'Выберите, разрешён ли поворот товара.';
+    errors.allow_rotation = 'Выберите, разрешён ли наклон товара.';
   }
   return errors;
 }
@@ -190,7 +190,7 @@ export function fieldLabel(field: string): string {
     max_weight: 'Макс. вес, г',
     quantity: 'Количество, шт.',
     available_count: 'Остаток, шт.',
-    allow_rotation: 'Поворот',
+    allow_rotation: 'Наклон',
     boxes: 'Коробки',
     products: 'Товары',
     options: 'Настройки',

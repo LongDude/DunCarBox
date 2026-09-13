@@ -23,8 +23,36 @@ from app.packing.engine import _metrics
 from app.packing.orientations import unique_orientations
 from app.packing.strategies import volume
 from app.packing.validation import validate_solution
-from app.packing.z3_constraints import Score, _build_model, _Model, add_bound, objective
+from app.packing.z3_constraints import (
+    Score,
+    _build_model,
+    _Model,
+    add_bound,
+    objective,
+    set_objectives,
+)
 from app.packing.z3_support import add_support_cuts, support_violations
+
+# Cumulative per worker, including every ratio/support refinement. This is a
+# deterministic Z3 work budget, not a wall-clock timeout or a cap on input size.
+SOLVER_RESOURCE_LIMIT = 50_000_000
+
+
+def _resource_count(optimizer) -> int:
+    statistics = optimizer.statistics()
+    return statistics.get_key_value("rlimit count") if "rlimit count" in statistics.keys() else 0
+
+
+def _proved(model: _Model, values: z3.ModelRef) -> bool:
+    # Equality of two approximations alone is insufficient: require finite
+    # integer bounds equal to the actual independently validated model score.
+    return all(
+        z3.is_int_value(lower := handle.lower())
+        and z3.is_int_value(upper := handle.upper())
+        and lower.as_long() == upper.as_long() == values.eval(score).as_long()
+        for handle, score in zip(model.objectives, model.objective_scores, strict=True)
+    )
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -146,6 +174,7 @@ def solve(
     pending_points = set()
     pending_score = None
     rounds = 0
+    initial_resources = _resource_count(problem.optimizer)
 
     def read_bound() -> None:
         nonlocal pending_score
@@ -154,7 +183,7 @@ def solve(
             pending_score = score
 
     def on_model(values: z3.ModelRef) -> None:
-        nonlocal best_score
+        nonlocal best_score, pending_score
         try:
             violations = support_violations(problem, values)
             pending_points.update(violations - problem.support_points)
@@ -164,6 +193,8 @@ def solve(
                 if score < best_score:
                     best_score = score
                     emit("feasible", candidate)
+                    if -score[0] > problem.ratio:
+                        pending_score = min(score, pending_score or score)
             read_bound()
             if pending_points or pending_score is not None:
                 ctx.interrupt()
@@ -182,6 +213,16 @@ def solve(
                 best_score = min(best_score, applied_score)
                 add_bound(problem, applied_score)
             pending_score = None
+            if -applied_score[0] != problem.ratio:
+                set_objectives(problem, -applied_score[0])
+                problem.optimizer.set_on_model(on_model)
+            remaining = SOLVER_RESOURCE_LIMIT - (
+                _resource_count(problem.optimizer) - initial_resources
+            )
+            if remaining <= 0:
+                emit("resource_limit", None)
+                return
+            problem.optimizer.set(rlimit=remaining)
             rounds += 1
             status = problem.optimizer.check()
             if pending_points:
@@ -193,7 +234,10 @@ def solve(
             if status != z3.sat:
                 # The inclusive bound has a verified full-support witness. UNSAT is
                 # a model error; UNKNOWN without our own refinement is not a proof.
-                emit("solver_error", None)
+                exhausted = (
+                    _resource_count(problem.optimizer) - initial_resources >= SOLVER_RESOURCE_LIMIT
+                )
+                emit("resource_limit" if exhausted else "solver_error", None)
                 return
             values = problem.optimizer.model()
             violations = support_violations(problem, values)
@@ -203,7 +247,13 @@ def solve(
                     return
                 continue
             result = _extract(request, problem, values)
-            proved = all(handle.lower().eq(handle.upper()) for handle in problem.objectives)
+            score = objective(result)
+            if score < best_score:
+                best_score = score
+                emit("feasible", result)
+            if -score[0] > problem.ratio:
+                continue
+            proved = _proved(problem, values) and -score[0] == problem.ratio
             _LOGGER.info(
                 "Z3 worker %s finished in %.3fs, %s rounds, %s support cuts; %s",
                 variant,

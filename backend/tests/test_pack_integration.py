@@ -48,13 +48,13 @@ def test_impossible_orders_are_explained_by_real_api(
     check_plan(order, result)
 
 
-def test_rotation_is_respected_across_http_boundary(client: TestClient, order: dict) -> None:
+@pytest.mark.parametrize("rotation", [False, True])
+def test_yaw_is_always_allowed_across_http_boundary(
+    client: TestClient, order: dict, rotation
+) -> None:
     order["boxes"][0].update(length=100, width=80, height=60)
     order["products"][0].update(length=80, width=100, height=60, quantity=1, allow_rotation=False)
-    blocked = client.post("/api/v1/pack", json=order).json()
-    assert blocked["status"] == "impossible"
-    check_plan(order, blocked)
-    order["products"][0]["allow_rotation"] = True
+    order["products"][0]["allow_rotation"] = rotation
     fitted = client.post("/api/v1/pack", json=order).json()
     assert fitted["status"] == "success"
     assert fitted["packed_boxes"][0]["placements"][0]["orientation"] == "WLH"

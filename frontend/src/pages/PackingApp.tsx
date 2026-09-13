@@ -245,7 +245,7 @@ function Workspace({
             DunCarBox<small>РАБОЧЕЕ МЕСТО УПАКОВЩИКА</small>
           </span>
         </a>
-        <div className="header-right">
+        {/*<div className="header-right">
           <div className="connection" role="status">
             <span
               className={`connection-dot ${health.state.status === 'success' ? 'online' : health.state.status === 'error' ? 'offline' : ''}`}
@@ -273,7 +273,7 @@ function Workspace({
               <option value="demo">Демо без сервера</option>
             </select>
           </label>
-        </div>
+        </div>*/}
       </header>
       <div className="navigation-bar screen-only">
         <nav aria-label="Основные разделы">
@@ -436,7 +436,7 @@ function Workspace({
                     </p>
                   )}
                   <p className="panel-description">
-                    Размеры упаковки товара в миллиметрах. Вес одной единицы в граммах.
+                    Размеры упаковки товара в миллиметрах
                   </p>
                   <ProductEditor
                     products={products}
@@ -461,10 +461,10 @@ function Workspace({
                       <dt>Общий вес</dt>
                       <dd>{weight(totalWeight)}</dd>
                     </div>
-                    <div>
+                    {/*<div>
                       <dt>Доступно коробок</dt>
                       <dd>{boxes.reduce((sum, box) => sum + box.available_count, 0)} шт.</dd>
-                    </div>
+                    </div>*/}
                   </dl>
                   <AlgorithmSelector
                     settings={algorithmSettings}
@@ -492,8 +492,8 @@ function Workspace({
                   </label>
                   <p id="alternatives-help" className="summary-note">
                     {mode === 'api' && algorithmSettings.algorithm === 'z3'
-                      ? 'Z3 возвращает один лучший найденный план. Альтернативы доступны для быстрой эвристики.'
-                      : 'Показать до 3 других планов с тем же количеством и объёмом товаров: можно сравнить коробки, заполнение и укладку. Если отличающихся планов нет, список будет пуст.'}
+                      ? 'Z3 возвращает лучший найденный план.'
+                      : 'Показать до 3 альтернативных планов. Список будет пуст если их нет.'}
                   </p>
                   {totalItems > 1_000 && (
                     <p className="summary-note">
@@ -661,7 +661,7 @@ function Workspace({
         <span>
           DunCarBox<span className="footer-divider">/</span>Каждому товару — своё место
         </span>
-        <span>Размеры в мм · Вес без тары</span>
+        {/*<span>Размеры в мм · Вес без тары</span>*/}
       </footer>
     </div>
   );

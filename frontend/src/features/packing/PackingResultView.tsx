@@ -163,29 +163,29 @@ function BoxWorkspace({
             <span className="eyebrow">СХЕМА УКЛАДКИ</span>
             <h2>{box.name}</h2>
           </div>
-          <span className="dimension-label">{dimensions(box)}</span>
+          <div className="scene-heading-actions">
+            <span className="dimension-label">
+              {showAll
+                ? 'Все товары'
+                : `Размещено ${Math.min(step, box.placements.length)} из ${box.placements.length}`}
+            </span>
+            <button
+              type="button"
+              className="secondary-button"
+              aria-pressed={showAll}
+              onClick={() => {
+                setPlaying(false);
+                setShowAll(!showAll);
+              }}
+            >
+              {showAll ? 'Вернуться к шагу' : 'Показать всё'}
+            </button>
+          </div>
         </div>
+
         <Suspense fallback={<Loading label="Загружаем 3D-сцену…" />}>
           <PackingViewer box={box} step={step} showAll={showAll} products={products} />
         </Suspense>
-        <div className="scene-bottom">
-          <span>
-            {showAll
-              ? 'Все товары'
-              : `Размещено ${Math.min(step, box.placements.length)} из ${box.placements.length}`}
-          </span>
-          <button
-            type="button"
-            className="text-button"
-            aria-pressed={showAll}
-            onClick={() => {
-              setPlaying(false);
-              setShowAll(!showAll);
-            }}
-          >
-            {showAll ? 'Вернуться к шагу' : 'Показать всё'}
-          </button>
-        </div>
       </section>
       <section className="instruction-panel" aria-label="Пошаговая инструкция">
         <div className="instruction-top">
@@ -201,7 +201,7 @@ function BoxWorkspace({
           <span className="step-kicker">{stepLabel}</span>
           <h2>
             {step === 0
-              ? `Возьмите ${box.name.toLocaleLowerCase('ru-RU')}`
+              ? `Возьмите "${box.name.toLocaleLowerCase('ru-RU')}"`
               : step === finalStep
                 ? 'Проверьте содержимое'
                 : `Возьмите «${product?.name ?? placement?.product_id ?? 'товар'}»`}
@@ -223,7 +223,7 @@ function BoxWorkspace({
               </div>
               <p className="instruction-text">
                 Поставьте открытую коробку перед собой. На схеме передняя стенка обращена к вам,
-                длина идёт слева направо.
+                длина считается слева направо.
               </p>
               <p className="instruction-hint">
                 Первый товар появится после нажатия «Следующий шаг».
@@ -235,7 +235,7 @@ function BoxWorkspace({
               <div className="instruction-block">
                 <span className="mini-step">1</span>
                 <div>
-                  <h3>Положение упаковки</h3>
+                  <h3>Ориентация товара</h3>
                   <p>{orientationGuidance(placement)}</p>
                   {product && !product.allow_rotation && (
                     <span className="rotation-note">Поворот запрещён · исходное положение</span>
@@ -551,9 +551,9 @@ export function PackingResultView({
           </div>
         )}
         
-        <div className="result-footnote">
+        {/*<div className="result-footnote">
           Вес указан без тары. Расчёт не списывает остатки коробок.
-        </div>
+        </div>*/}
       </div>
     </>
   );

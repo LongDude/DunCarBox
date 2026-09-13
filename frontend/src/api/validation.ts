@@ -219,16 +219,16 @@ export function apiErrorDetailMessage(detail: ApiErrorDetail): string {
     string_type: 'Введите текст.',
     string_too_short: 'Поле не должно быть пустым.',
     string_too_long: 'Сократите название до 200 символов.',
-    string_pattern_mismatch: 'Используйте латинские буквы, цифры, «-» и «_» в идентификаторе.',
+    string_pattern_mismatch: 'Используйте латинские буквы, цифры, «-» и «_».',
     greater_than: 'Значение должно быть больше нуля.',
     greater_than_equal: 'Значение не может быть отрицательным.',
-    less_than_equal: 'Превышено допустимое максимальное значение.',
+    less_than_equal: 'Значение превышает допустимый максимум.',
     extra_forbidden: 'Это поле не поддерживается API v1.',
     too_long: 'Превышено допустимое количество строк.',
     too_short: 'Добавьте хотя бы одну строку.',
   };
   if (detail.message.includes('duplicate id')) return 'Идентификаторы строк не должны повторяться.';
-  return labels[detail.type] ?? 'Проверьте значение и допустимые ограничения.';
+  return labels[detail.type] ?? 'Проверьте значение и ограничения.';
 }
 
 export function apiErrorFields(error: ApiError): FieldErrors {

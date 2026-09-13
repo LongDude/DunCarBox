@@ -156,12 +156,12 @@ export function ProductEditor({
                 <th scope="col">Название товара</th>
                 {numericFields.map(({ key, label, unit }) => (
                   <th scope="col" key={key}>
-                    {label}
-                    <span>{unit}</span>
+                    {label}, {unit}
+                    {/*<span>{unit}</span>*/}
                   </th>
                 ))}
                 <th scope="col" className="product-rotation">
-                  Поворот<span>разрешён</span>
+                  Поворот<br />разрешён
                 </th>
                 <th scope="col">
                   <span className="sr-only">Действия</span>
@@ -301,9 +301,9 @@ export function ProductEditor({
         </button>
         <div className="product-editor-meta">
           <span className="form-count">
-            {products.length} поз. · {total.toLocaleString('ru-RU')} шт.
+            {products.length} позиции · {total.toLocaleString('ru-RU')} товаров
           </span>
-          <span className="form-helper">Tab — следующее поле · Количество указывается в единицах товара</span>
+          {/*<span className="form-helper">Tab — следующее поле · Количество указывается в единицах товара</span>*/}
         </div>
       </div>
     </div>

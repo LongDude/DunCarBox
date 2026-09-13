@@ -207,7 +207,7 @@ def test_complexity_does_not_count_orientation_transition_between_boxes() -> Non
     assert complexity.orientation_changes == 0
 
 
-def test_solution_fill_precedes_packed_count() -> None:
+def test_solution_packed_count_precedes_volume_and_fill() -> None:
     source = box_type(dimensions=(10, 10, 10))
     one_large = solution((packed_box(source, (placed(),)),), unpacked=2)
     two_small = solution(
@@ -223,18 +223,18 @@ def test_solution_fill_precedes_packed_count() -> None:
         unpacked=1,
     )
     assert two_small.metrics.used_volume < one_large.metrics.used_volume
-    assert solution_score(one_large, {source.id: source}) < solution_score(
-        two_small, {source.id: source}
+    assert solution_score(two_small, {source.id: source}) < solution_score(
+        one_large, {source.id: source}
     )
 
 
-def test_solution_fill_precedes_packed_volume_for_equal_count() -> None:
+def test_solution_packed_volume_precedes_unused_box_volume_for_equal_count() -> None:
     roomy = box_type("roomy", (20, 20, 20))
     tiny = box_type("tiny", (5, 5, 5))
     large = solution((packed_box(roomy, (placed(),)),), unpacked=1)
     small = solution((packed_box(tiny, (placed(dimensions=(5, 5, 5)),)),), unpacked=1)
     assert large.metrics.empty_volume > small.metrics.empty_volume
-    assert solution_score(small, {tiny.id: tiny}) < solution_score(large, {roomy.id: roomy})
+    assert solution_score(large, {roomy.id: roomy}) < solution_score(small, {tiny.id: tiny})
 
 
 def test_solution_packed_volume_precedes_box_count_for_equal_item_count() -> None:

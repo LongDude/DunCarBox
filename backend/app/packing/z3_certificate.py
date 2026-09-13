@@ -1,4 +1,4 @@
-"""Prove incumbent fill optimal with a small, necessary-condition relaxation.
+"""Prove a full incumbent optimal with a small, necessary-condition relaxation.
 
 No coordinates or individual unit permutations occur here. Every real packing
 maps to these aggregate counts, so UNSAT for a strictly better score certifies
@@ -10,7 +10,6 @@ Their one-dimensional inequalities are derived with exact rational arithmetic.
 """
 
 import logging
-from dataclasses import replace
 from fractions import Fraction
 from itertools import permutations
 from math import lcm, prod
@@ -48,7 +47,7 @@ def _axis_scale(capacity: int, a: int, b: int, count_a: int, count_b: int):
     return alpha, beta
 
 
-def _fixed_pair_scale(box: BoxType, a: Product, b: Product) -> tuple[int, int, int]:
+def pair_scale(box: BoxType, a: Product, b: Product) -> tuple[int, int, int]:
     """Return integer coefficients A,B,C for A*count(a)+B*count(b) <= C.
 
     Fixed orientation is essential: rotating units cannot use these axis sizes.
@@ -56,6 +55,8 @@ def _fixed_pair_scale(box: BoxType, a: Product, b: Product) -> tuple[int, int, i
     Rescheduling those chains into a unit interval preserves all separating
     axes, so the transformed cuboids fit a unit cube. Their volumes sum to <=1.
     """
+    if a.allow_rotation or b.allow_rotation:
+        raise ValueError("Pair scales require fixed orientations")
     scales = [
         _axis_scale(getattr(box, axis), getattr(a, axis), getattr(b, axis), a.quantity, b.quantity)
         for axis in ("length", "width", "height")
@@ -64,38 +65,6 @@ def _fixed_pair_scale(box: BoxType, a: Product, b: Product) -> tuple[int, int, i
     beta = prod(value[1] for value in scales)
     denominator = lcm(alpha.denominator, beta.denominator)
     return int(alpha * denominator), int(beta * denominator), denominator
-
-
-def pair_scale(box: BoxType, a: Product, b: Product) -> tuple[int, int, int]:
-    """Conservative product-level bound, valid for every allowed orientation.
-
-    Shrink each axis to its minimum over rotations before applying fixed scales.
-    The stronger orientation-specific cuts below retain the actual dimensions.
-    """
-
-    def shrink(product):
-        sizes = unique_orientations(
-            Dimensions(product.length, product.width, product.height), product.allow_rotation
-        )
-        return replace(
-            product,
-            **{
-                axis: min(getattr(size, axis) for _, size in sizes)
-                for axis in ("length", "width", "height")
-            },
-        )
-
-    return _fixed_pair_scale(box, shrink(a), shrink(b))
-
-
-def _fixed_capacity(box: BoxType, product: Product) -> int:
-    return min(
-        product.quantity,
-        box.max_weight // product.weight if product.weight else product.quantity,
-        prod(
-            getattr(box, axis) // getattr(product, axis) for axis in ("length", "width", "height")
-        ),
-    )
 
 
 def _capacity(box: BoxType, product: Product) -> int:
@@ -110,7 +79,7 @@ def _capacity(box: BoxType, product: Product) -> int:
     count = min(product.quantity, volume(box) // volume(product))
     if product.weight:
         count = min(count, box.max_weight // product.weight)
-    if len(rotations) == 1:
+    if not product.allow_rotation:
         # For identical fixed cuboids the product of per-axis floor capacities
         # is an upper bound even in an irregular, interleaved arrangement.
         count = min(
@@ -120,14 +89,6 @@ def _capacity(box: BoxType, product: Product) -> int:
                 for axis in ("length", "width", "height")
             ),
         )
-    elif not product.allow_rotation:
-        # Equal-height intervals split into floor(H/h) overlapping height bands.
-        # Within each band, base rectangles are disjoint, including mixed yaw.
-        count = min(
-            count,
-            (box.height // product.height)
-            * (box.length * box.width // (product.length * product.width)),
-        )
     return count
 
 
@@ -136,83 +97,53 @@ def _better_plan_solver(request: PackingRequest, incumbent: PackingResult) -> z3
     solver = z3.Solver(ctx=ctx)
     metrics = incumbent.metrics
     products = tuple(sorted(request.products, key=lambda product: product.id))
-    # Split by orientation: a pinwheel can mix LWH and WLH even when tilting is
-    # forbidden. Fixed-axis bounds may only constrain these separate counts.
-    variants = tuple(
-        replace(product, length=size.length, width=size.width, height=size.height)
-        for product in products
-        for _, size in unique_orientations(
-            Dimensions(product.length, product.width, product.height), product.allow_rotation
-        )
+    boxes = tuple(
+        box for box in compatible_box_types(request) if volume(box) <= metrics.total_box_volume
     )
-    boxes = compatible_box_types(request)
     counts = [z3.Int(f"cartons_{t}", ctx) for t in range(len(boxes))]
     assigned = [
-        [z3.Int(f"units_{t}_{p}", ctx) for p in range(len(variants))] for t in range(len(boxes))
+        [z3.Int(f"units_{t}_{p}", ctx) for p in range(len(products))] for t in range(len(boxes))
     ]
 
     def total(terms):
         return z3.Sum([z3.IntVal(0, ctx), *terms])
 
-    for product in products:
-        solver.add(
-            total(
-                row[p]
-                for row in assigned
-                for p, variant in enumerate(variants)
-                if variant.id == product.id
-            )
-            <= product.quantity
-        )
+    for p, product in enumerate(products):
+        solver.add(total(row[p] for row in assigned) == product.quantity)
     for t, box in enumerate(boxes):
         count, row = counts[t], assigned[t]
         solver.add(
             count >= 0,
-            count <= min(box.available_count, metrics.total_items),
+            count
+            <= min(
+                box.available_count, metrics.total_items, metrics.total_box_volume // volume(box)
+            ),
         )
         solver.add(total(row) >= count)
-        capacities = [_fixed_capacity(box, product) for product in variants]
-        for p, product in enumerate(variants):
+        capacities = [_capacity(box, product) for product in products]
+        for p, product in enumerate(products):
             solver.add(row[p] >= 0, row[p] <= product.quantity, row[p] <= capacities[p] * count)
-        for product in products:
-            solver.add(
-                total(row[p] for p, variant in enumerate(variants) if variant.id == product.id)
-                <= _capacity(box, product) * count
-            )
         solver.add(
-            total(row[p] * volume(product) for p, product in enumerate(variants))
+            total(row[p] * volume(product) for p, product in enumerate(products))
             <= volume(box) * count
         )
         solver.add(
-            total(row[p] * product.weight for p, product in enumerate(variants))
+            total(row[p] * product.weight for p, product in enumerate(products))
             <= box.max_weight * count
         )
-        # Optional cuts must have bounded construction cost on large catalogues.
-        fixed = (
-            [p for p in range(len(variants)) if capacities[p] > 0] if len(variants) <= 24 else []
-        )
+        fixed = [
+            p
+            for p, product in enumerate(products)
+            if not product.allow_rotation and capacities[p] > 0
+        ]
         for a, b in permutations(fixed, 2):
-            alpha, beta, denominator = _fixed_pair_scale(box, variants[a], variants[b])
+            alpha, beta, denominator = pair_scale(box, products[a], products[b])
             solver.add(alpha * row[a] + beta * row[b] <= denominator * count)
     box_volume = total(count * volume(box) for count, box in zip(counts, boxes, strict=True))
-    packed_count = total(unit for row in assigned for unit in row)
-    used_volume = total(
-        row[p] * volume(product) for row in assigned for p, product in enumerate(variants)
-    )
-    gain = used_volume * (metrics.total_box_volume or 1) - box_volume * metrics.used_volume
     solver.add(
         z3.Or(
-            gain > 0,
-            z3.And(gain == 0, packed_count > metrics.packed_items),
-            z3.And(
-                gain == 0, packed_count == metrics.packed_items, used_volume > metrics.used_volume
-            ),
-            z3.And(
-                gain == 0,
-                packed_count == metrics.packed_items,
-                used_volume == metrics.used_volume,
-                total(counts) < metrics.boxes_used,
-            ),
+            box_volume < metrics.total_box_volume,
+            z3.And(box_volume == metrics.total_box_volume, total(counts) < metrics.boxes_used),
         )
     )
     return solver
@@ -220,6 +151,8 @@ def _better_plan_solver(request: PackingRequest, incumbent: PackingResult) -> z3
 
 def certify_incumbent(request: PackingRequest, incumbent: PackingResult) -> bool:
     """Only an UNSAT proof is a certificate; resource exhaustion falls through."""
+    if incumbent.metrics.packed_items != sum(product.quantity for product in request.products):
+        return False
     # This is an optional proof accelerator. Large catalogues still use the full
     # model; no products or box types are silently dropped from a certificate.
     if len(request.products) > 12 or len(request.boxes) > 64:

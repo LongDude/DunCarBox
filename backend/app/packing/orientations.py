@@ -8,14 +8,13 @@ ORIENTATION_ORDER: tuple[Orientation, ...] = ("LWH", "LHW", "WLH", "WHL", "HLW",
 def unique_orientations(
     dimensions: Dimensions, allow_rotation: bool = True
 ) -> tuple[tuple[Orientation, Dimensions], ...]:
-    """Yaw is always allowed; allow_rotation additionally permits changing the base.
-
-    Keep the first allowed contract label when equal sides duplicate geometry.
-    """
+    """Keep the first contract label when equal sides produce duplicate rotations."""
+    if not allow_rotation:
+        return (("LWH", dimensions),)
     axes = {"L": dimensions.length, "W": dimensions.width, "H": dimensions.height}
     seen: set[Dimensions] = set()
     result: list[tuple[Orientation, Dimensions]] = []
-    for orientation in ORIENTATION_ORDER if allow_rotation else ("LWH", "WLH"):
+    for orientation in ORIENTATION_ORDER:
         rotated = Dimensions(*(axes[axis] for axis in orientation))
         if rotated not in seen:
             seen.add(rotated)

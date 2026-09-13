@@ -40,7 +40,6 @@ export function optimizationDisplay(result: PackingResult, request: PackingReque
     time_limit: 'Достигнут лимит времени поиска.',
     size_limit: 'Заказ превышает лимит размера модели Z3.',
     solver_error: 'Оптимизатор Z3 не смог завершить расчёт.',
-    resource_limit: 'Достигнут предел работы Z3. Сохранён лучший проверенный план.',
   }[info.reason];
   const searchTime = info.time_limit_ms === null
     ? 'без ограничения времени'
@@ -65,7 +64,7 @@ export const issueLabels: Record<PackingIssue['code'], string> = {
   ITEM_TOO_HEAVY: 'Превышен допустимый вес',
   BOX_STOCK_EXHAUSTED: 'Недостаточно коробок',
   NO_BOX_TYPES: 'Нет доступных типов коробок',
-  NO_FEASIBLE_PLACEMENT: 'Товар не включён в план',
+  NO_FEASIBLE_PLACEMENT: 'Размещение не найдено',
   PARTIAL_PACKING: 'Заказ упакован частично',
   SIMILAR_ALTERNATIVES: 'Похожие варианты',
   DEMO_STUB: 'Демонстрационный план',
@@ -73,7 +72,7 @@ export const issueLabels: Record<PackingIssue['code'], string> = {
 
 export function issueMessage(issue: PackingIssue): string {
   return issue.code === 'NO_FEASIBLE_PLACEMENT'
-    ? 'Товар не включён в выбранный план с приоритетом общего заполнения. Его упаковка в другом плане может быть возможна.'
+    ? 'Алгоритму не удалось найти корректное размещение при текущих ограничениях.'
     : issue.message;
 }
 

@@ -161,7 +161,7 @@ class PackingRequest:
 @dataclass(frozen=True, slots=True)
 class OptimizationInfo:
     status: Literal["optimal", "feasible", "fallback"]
-    reason: Literal["completed", "time_limit", "size_limit", "resource_limit", "solver_error"]
+    reason: Literal["completed", "time_limit", "size_limit", "solver_error"]
     workers: int
     time_limit_ms: int | None
     support_ratio: float = 1.0

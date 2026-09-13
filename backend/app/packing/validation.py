@@ -219,7 +219,7 @@ def validate_solution(
                 "Dimensions must be positive integer millimetres",
             )
             axis = {"L": item.length, "W": item.width, "H": item.height}
-            orientations = _ORIENTATIONS if item.allow_rotation else ("LWH", "WLH")
+            orientations = _ORIENTATIONS if item.allow_rotation else ("LWH",)
             canonical = {}
             for orientation in orientations:
                 canonical.setdefault(tuple(axis[letter] for letter in orientation), orientation)
@@ -314,13 +314,9 @@ def validate_solution(
                 sorted(
                     solution.alternatives,
                     key=lambda alternative: (
-                        -Fraction(
-                            alternative.metrics.used_volume, alternative.metrics.total_box_volume
-                        )
-                        if alternative.metrics.total_box_volume
-                        else Fraction(0),
-                        -alternative.metrics.packed_items,
+                        alternative.metrics.unpacked_items,
                         -alternative.metrics.used_volume,
+                        alternative.metrics.empty_volume,
                         alternative.metrics.boxes_used,
                         alternative.id,
                     ),

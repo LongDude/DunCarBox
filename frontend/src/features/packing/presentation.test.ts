@@ -98,7 +98,7 @@ describe('API status and diagnostic presentation', () => {
     const reason = issue('NO_FEASIBLE_PLACEMENT', 'Эвристика не нашла укладку.');
     expect(statusDisplay('impossible', [reason]).label).toBe('Не удалось найти размещение');
     expect(issueMessage(reason)).toBe(
-      'Товар не включён в выбранный план с приоритетом общего заполнения. Его упаковка в другом плане может быть возможна.',
+      'Алгоритму не удалось найти корректное размещение при текущих ограничениях.',
     );
     expect(statusDisplay('partial', [reason]).label).toBe('Упакован частично');
   });
@@ -112,7 +112,7 @@ describe('API status and diagnostic presentation', () => {
     expect(issueMessage(simple.response.issues[0])).toBe(simple.response.issues[0].message);
     expect(issueLabels.DEMO_STUB).toBe('Демонстрационный план');
     expect(issueLabels.ITEM_TOO_HEAVY).toBe('Превышен допустимый вес');
-    expect(issueLabels.NO_FEASIBLE_PLACEMENT).toBe('Товар не включён в план');
+    expect(issueLabels.NO_FEASIBLE_PLACEMENT).toBe('Размещение не найдено');
   });
 
   it('keeps millimetres, converts grams to kilograms and interprets fill ratio as a fraction', () => {
@@ -220,7 +220,7 @@ describe('truthful operator guidance derived from contract geometry', () => {
   it('uses a coincident earlier face to describe an actual left neighbour', () => {
     const guidance = placementGuidance(simpleBox.placements[1], simpleBox, simple.request.products);
     expect(guidance).toContain('справа от «Чай, подарочная упаковка»');
-    expect(guidance).toContain('Выровняйте передние стороны упаковки товаров');
+    expect(guidance).toContain('Выровняйте передние грани');
     expect(guidance).toContain('Товар должен стоять на дне');
   });
 

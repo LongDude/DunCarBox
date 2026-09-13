@@ -227,7 +227,7 @@ def test_no_box_types_explains_every_unit() -> None:
     assert issue_ids(result, "NO_BOX_TYPES") == {"item:1", "item:2"}
 
 
-def test_fill_ratio_precedes_packed_count() -> None:
+def test_packed_count_precedes_fill_ratio_and_packed_volume() -> None:
     request = PackingRequest(
         (box(dimensions=(100, 100, 100), weight=2),),
         (
@@ -236,9 +236,9 @@ def test_fill_ratio_precedes_packed_count() -> None:
         ),
     )
     result = pack(request)
-    assert result.metrics.packed_items == 1
-    assert [item.id for item in result.unpacked_items] == ["small:1", "small:2"]
-    assert result.metrics.fill_ratio == 1
+    assert result.metrics.packed_items == 2
+    assert [item.id for item in result.unpacked_items] == ["large:1"]
+    assert result.metrics.fill_ratio == 0.25
 
 
 def test_improved_fill_ratio_precedes_fewer_boxes() -> None:
@@ -252,22 +252,20 @@ def test_improved_fill_ratio_precedes_fewer_boxes() -> None:
     assert result.metrics.fill_ratio == 1
 
 
-def test_lower_fill_carton_is_left_out_even_when_all_items_could_be_packed() -> None:
+def test_scarce_versatile_box_is_preserved_for_item_that_needs_it() -> None:
     request = PackingRequest(
         (box("versatile"), box("narrow", (8, 10, 10))),
         (product("needs-large", (9, 10, 10)), product("fits-both", (8, 10, 10))),
     )
     result = pack(request)
-    assert result.status == "partial"
-    assert result.metrics.boxes_by_type == {"narrow": 1}
-    assert result.metrics.fill_ratio == 1
-    assert [item.id for item in result.unpacked_items] == ["needs-large:1"]
+    assert result.status == "success"
+    assert result.metrics.boxes_by_type == {"narrow": 1, "versatile": 1}
     locations = {
         placement.product_id: packed_box.box_type_id
         for packed_box in result.packed_boxes
         for placement in packed_box.placements
     }
-    assert locations == {"fits-both": "narrow"}
+    assert locations == {"needs-large": "versatile", "fits-both": "narrow"}
 
 
 def test_stacked_placements_have_supporters_at_earlier_steps() -> None:

@@ -50,12 +50,8 @@ def test_rotation_duplicates_keep_first_contract_label(dimensions, labels):
     assert len({dimensions for _, dimensions in result}) == len(result)
 
 
-def test_tilting_disabled_still_allows_yaw():
-    assert unique_orientations(Dimensions(2, 3, 5), False) == (
-        ("LWH", Dimensions(2, 3, 5)),
-        ("WLH", Dimensions(3, 2, 5)),
-    )
-    assert unique_orientations(Dimensions(2, 2, 5), False) == (("LWH", Dimensions(2, 2, 5)),)
+def test_rotation_disabled():
+    assert unique_orientations(Dimensions(2, 3, 5), False) == (("LWH", Dimensions(2, 3, 5)),)
 
 
 @pytest.mark.parametrize("offset", [(10, 0, 0), (0, 10, 0), (0, 0, 10), (10, 10, 10)])

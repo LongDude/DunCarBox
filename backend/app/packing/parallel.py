@@ -54,24 +54,27 @@ def _merge(request, results):
     best = ranked[0]
     alternatives = []
     for result in ranked[1:]:
-        if not request.options.include_alternatives or len(alternatives) >= min(
-            3, request.options.max_alternatives
+        if (
+            not request.options.include_alternatives
+            or len(alternatives) >= min(3, request.options.max_alternatives)
         ):
             break
-        alternatives.append(
-            PackingAlternative(
-                id=f"alternative-{len(alternatives) + 1}",
-                description=(
-                    f"Коробок: {result.metrics.boxes_used}; "
-                    f"заполнение: {result.metrics.fill_ratio:.1%}."
-                ),
-                status=result.status,
-                metrics=result.metrics,
-                packed_boxes=result.packed_boxes,
-                unpacked_items=result.unpacked_items,
-                issues=result.issues,
-            )
-        )
+        if (result.metrics.packed_items, result.metrics.used_volume) != (
+            best.metrics.packed_items, best.metrics.used_volume
+        ):
+            continue
+        alternatives.append(PackingAlternative(
+            id=f"alternative-{len(alternatives) + 1}",
+            description=(
+                f"Коробок: {result.metrics.boxes_used}; "
+                f"заполнение: {result.metrics.fill_ratio:.1%}."
+            ),
+            status=result.status,
+            metrics=result.metrics,
+            packed_boxes=result.packed_boxes,
+            unpacked_items=result.unpacked_items,
+            issues=result.issues,
+        ))
     return replace(best, alternatives=tuple(alternatives))
 
 
@@ -98,10 +101,8 @@ def pack_parallel(request, *, cancel_event=None, progress=None):
             control.expired()
             receiver, sender = context.Pipe(duplex=False)
             process = context.Process(
-                target=_search,
-                args=(sender, request, strategies, cancel_event),
-                name=f"duncarbox-heuristic-{index}",
-                daemon=True,
+                target=_search, args=(sender, request, strategies, cancel_event),
+                name=f"duncarbox-heuristic-{index}", daemon=True,
             )
             try:
                 process.start()
@@ -128,11 +129,9 @@ def pack_parallel(request, *, cancel_event=None, progress=None):
                     del active[connection]
                 else:
                     fractions[index] = value
-                control.report(
-                    "heuristic",
-                    sum(fraction * len(group) for fraction, group in zip(fractions, groups))
-                    / len(STRATEGIES),
-                )
+                control.report("heuristic", sum(
+                    fraction * len(group) for fraction, group in zip(fractions, groups)
+                ) / len(STRATEGIES))
     finally:
         for process, connection in running:
             if process.is_alive():

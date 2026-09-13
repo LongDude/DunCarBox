@@ -2,7 +2,6 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from fractions import Fraction
 
 from app.domain.models import BoxType, PackedBox, PackingResult, Placement
 
@@ -117,23 +116,17 @@ def solution_signature(boxes: Sequence[PackedBox]) -> tuple:
     )
 
 
-def packing_objective(metrics) -> tuple[Fraction, int, int, int]:
-    """Overall fill first, using exact ratios rather than rounded UI metrics."""
-    fill = (
-        Fraction(metrics.used_volume, metrics.total_box_volume)
-        if metrics.total_box_volume
-        else Fraction(0)
-    )
-    return (-fill, -metrics.packed_items, -metrics.used_volume, metrics.boxes_used)
-
-
 def solution_score(result: PackingResult, boxes: dict[str, BoxType]) -> tuple:
     m = result.metrics
+    # With packed count/volume fixed, minimum carton volume maximizes overall fill.
     scarce_usage = sum(
         count for bid, count in m.boxes_by_type.items() if boxes[bid].available_count == count
     )
     return (
-        *packing_objective(m),
+        m.unpacked_items,
+        -m.used_volume,
+        m.empty_volume,
+        m.boxes_used,
         packing_complexity(result.packed_boxes).total,
         scarce_usage,
         solution_signature(result.packed_boxes),

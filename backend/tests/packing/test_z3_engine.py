@@ -52,7 +52,7 @@ def pack(value):
     return result
 
 
-@pytest.mark.parametrize("rotation,expected", [(False, 1), (True, 1)])
+@pytest.mark.parametrize("rotation,expected", [(False, 0), (True, 1)])
 def test_rotation_and_combined_weight(rotation, expected):
     value = request(
         [box(size=(6, 4, 4), weight=10)],
@@ -84,7 +84,7 @@ def test_trivially_impossible_does_not_start_processes(boxes):
     assert result.optimization.workers == 0
 
 
-def test_fill_precedes_packed_count():
+def test_count_precedes_packed_volume():
     value = request(
         [box(size=(10, 10, 1))],
         [
@@ -93,9 +93,9 @@ def test_fill_precedes_packed_count():
         ],
     )
     result = pack(value)
-    assert result.metrics.packed_items == 1
-    assert result.metrics.used_volume == 100
-    assert {p.product_id for b in result.packed_boxes for p in b.placements} == {"large"}
+    assert result.metrics.packed_items == 2
+    assert result.metrics.used_volume == 50
+    assert {p.product_id for b in result.packed_boxes for p in b.placements} == {"small"}
     assert result.optimization.status == "optimal"
 
 
@@ -328,12 +328,6 @@ def test_solver_without_a_proof_reports_error_without_configuring_timeout(
     monkeypatch, solver_status
 ):
     class Optimizer:
-        def statistics(self):
-            return SimpleNamespace(keys=lambda: [])
-
-        def set(self, **kwargs):
-            assert "timeout" not in kwargs
-
         def set_on_model(self, callback):
             pass
 
@@ -342,7 +336,7 @@ def test_solver_without_a_proof_reports_error_without_configuring_timeout(
 
     monkeypatch.setattr(
         "app.packing.z3_model._build_model",
-        lambda *args: SimpleNamespace(optimizer=Optimizer(), ratio=Fraction(1)),
+        lambda *args: SimpleNamespace(optimizer=Optimizer()),
     )
     value = request([box()], [product()], timeout=1)
     from app.packing.engine import DeterministicPackingEngine

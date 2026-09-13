@@ -436,7 +436,7 @@ function Workspace({
                     </p>
                   )}
                   <p className="panel-description">
-                    Размеры упаковки товара в миллиметрах. Поворот на дне разрешён всегда.
+                    Размеры упаковки товара в миллиметрах
                   </p>
                   <ProductEditor
                     products={products}
@@ -466,12 +466,6 @@ function Workspace({
                       <dd>{boxes.reduce((sum, box) => sum + box.available_count, 0)} шт.</dd>
                     </div>*/}
                   </dl>
-                  {mode === 'api' && (
-                    <p className="summary-note">
-                      Приоритет — общее заполнение коробок. Часть товаров может остаться вне плана,
-                      если их добавление снижает заполнение.
-                    </p>
-                  )}
                   <AlgorithmSelector
                     settings={algorithmSettings}
                     demo={mode === 'demo'}

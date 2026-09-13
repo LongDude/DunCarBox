@@ -113,7 +113,7 @@ export const responseGuards = {
     calculation_seconds: optional(nullable((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0)),
     optimization: optional(nullable(shape({
       status: oneOf('optimal', 'feasible', 'fallback'),
-      reason: oneOf('completed', 'time_limit', 'size_limit', 'resource_limit', 'solver_error'),
+      reason: oneOf('completed', 'time_limit', 'size_limit', 'solver_error'),
       workers: integer,
       time_limit_ms: (value) => value === null || (integer(value) && (value as number) > 0),
       support_ratio: ratio,

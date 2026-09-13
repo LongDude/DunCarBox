@@ -14,14 +14,7 @@ from app.domain.models import (
 
 def _fits(item: ItemInstance, box: BoxType) -> bool:
     dimensions = (item.length, item.width, item.height)
-    orientations = (
-        set(permutations(dimensions))
-        if item.allow_rotation
-        else (
-            dimensions,
-            (item.width, item.length, item.height),
-        )
-    )
+    orientations = set(permutations(dimensions)) if item.allow_rotation else (dimensions,)
     return any(
         length <= box.length and width <= box.width and height <= box.height
         for length, width, height in orientations
@@ -89,8 +82,8 @@ def build_issues(
         add(
             "NO_FEASIBLE_PLACEMENT",
             "warning",
-            "Товар не включён в выбранный план с приоритетом общего заполнения. "
-            "Это не доказывает невозможность его упаковки в другом плане.",
+            "Эвристика не нашла размещение с соблюдением геометрии, веса и опоры; "
+            "это не доказывает невозможность другого плана упаковки.",
             item,
             suitable,
         )

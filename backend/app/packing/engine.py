@@ -29,7 +29,6 @@ from app.packing.options import EngineOptions
 from app.packing.orientations import unique_orientations
 from app.packing.scoring import (
     packing_complexity,
-    packing_objective,
     placement_score,
     solution_score,
     solution_signature,
@@ -306,24 +305,7 @@ class DeterministicPackingEngine:
                     (strategy_index + (1 - len(remaining) / max(1, len(ordered))))
                     / len(self.strategies),
                 )
-            # Overall fill is a weighted average of carton fills. A carton below
-            # the best fill can only worsen the primary objective; keep all tied
-            # cartons to maximize packed count at that fill.
-            best_fill = max(
-                (Fraction(box.used_volume, volume(box)) for box in packed_boxes),
-                default=Fraction(0),
-            )
-            selected_counts = Counter()
-            selected = []
-            for carton in packed_boxes:
-                if Fraction(carton.used_volume, volume(carton)) == best_fill:
-                    selected_counts[carton.box_type_id] += 1
-                    selected.append(
-                        replace(
-                            carton, id=f"{carton.box_type_id}:{selected_counts[carton.box_type_id]}"
-                        )
-                    )
-            packed = tuple(selected)
+            packed = tuple(packed_boxes)
             chosen = {p.item_instance_id for box in packed for p in box.placements}
             unpacked = tuple(item for item in items if item.id not in chosen)
             metrics = _metrics(packed, len(items))
@@ -363,6 +345,12 @@ class DeterministicPackingEngine:
             else 0
         )
         for result, _ in ranked[1:]:
+            # Never offer a plan known to pack fewer units or less product volume.
+            if (result.metrics.packed_items, result.metrics.used_volume) != (
+                recommended.metrics.packed_items,
+                recommended.metrics.used_volume,
+            ):
+                continue
             if len(alternatives) >= limit:
                 break
             alternatives.append(
@@ -382,7 +370,10 @@ class DeterministicPackingEngine:
             )
         alternatives.sort(
             key=lambda alt: (
-                *packing_objective(alt.metrics),
+                alt.metrics.unpacked_items,
+                -alt.metrics.used_volume,
+                alt.metrics.empty_volume,
+                alt.metrics.boxes_used,
                 alt.id,
             )
         )

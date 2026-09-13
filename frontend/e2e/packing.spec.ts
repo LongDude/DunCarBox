@@ -102,10 +102,10 @@ test('Z3 settings survive demo mode and are exported with an unproven result', a
   await page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true }).selectOption('z3');
   await expect(page.getByLabel('Лимит поиска, с', { exact: true })).toHaveCount(0);
   await page.getByLabel('Параллельные процессы', { exact: true }).fill('8');
-  await page.goto('/?mode=demo');
+  await page.getByLabel('Источник данных').selectOption('demo');
   await expect(page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true })).toBeDisabled();
   await expect(page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true })).toHaveValue('demo');
-  await page.goto('/?mode=api');
+  await page.getByLabel('Источник данных').selectOption('api');
   await expect(page.getByRole('combobox', { name: 'Алгоритм расчёта', exact: true })).toHaveValue('z3');
   await page.getByLabel('Демо-сценарий').selectOption('simple-order');
   await page.getByRole('button', { name: 'Загрузить демо-заказ', exact: true }).click();
@@ -119,27 +119,6 @@ test('Z3 settings survive demo mode and are exported with an unproven result', a
   const exported = await jsonExport(page);
   expect(exported.request.options).toMatchObject(submitted!.options!);
   expect(exported.result.optimization).toEqual(result.optimization);
-});
-
-test('upright yaw and fill priority are explained and resource limits stay unproven', async ({ page }) => {
-  const result: PackingResult = {
-    ...structuredClone(multipleResult),
-    algorithm_version: 'z3-packing-v1',
-    issues: multipleResult.issues.filter(issue => issue.code !== 'DEMO_STUB'),
-    optimization: { status: 'fallback', reason: 'resource_limit', workers: 1, time_limit_ms: null, support_ratio: 1 },
-  };
-  await mockApi(page, route => route.fulfill({ json: result }));
-  await loadOrder(page, 'multiple-boxes', 'api');
-  await expect(page.getByLabel('Разрешить наклон товара 2', { exact: true })).not.toBeChecked();
-  await expect(page.getByText('Размеры упаковки товара в миллиметрах. Поворот на дне разрешён всегда.')).toBeVisible();
-  await expect(page.locator('.order-summary')).toContainText('Часть товаров может остаться вне плана');
-  await page.screenshot({ path: '../.cache/fill-priority-order.png', fullPage: true });
-  await calculate(page);
-  const summary = page.getByRole('region', { name: 'Алгоритм и качество решения' });
-  await expect(summary).toContainText('Достигнут предел работы Z3');
-  await expect(summary).toContainText('Оптимум не доказан');
-  await expect(summary).not.toContainText('Оптимум доказан в модели Z3');
-  await page.screenshot({ path: '../.cache/fill-priority-result.png', fullPage: true });
 });
 
 test('multiple boxes: 3D, step filtering, layer view, show all and box reset', async ({ page }) => {

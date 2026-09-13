@@ -57,7 +57,6 @@ def test_lazy_cut_preserves_joint_support_and_rejects_a_gap(gap):
     model = _build_model(request, compatible_box_types(request), z3.Context())
     for i, (x, z) in enumerate(((0, 0), (4 - width, 0), (0, 1))):
         model.optimizer.add(model.box[i] == 0, model.x[i] == x, model.y[i] == 0, model.z[i] == z)
-        model.optimizer.add(model.dx[i] == request.products[i].length)
     assert model.optimizer.check() == z3.sat
     points = support_violations(model, model.optimizer.model())
     assert bool(points) == gap
@@ -194,7 +193,7 @@ def test_partial_incumbent_does_not_prune_larger_box_needed_to_pack_more():
 
 
 @pytest.mark.parametrize("seed", range(12))
-def test_lazy_symmetric_model_matches_eager_unsymmetrized_optimum(seed, exact_optimum):
+def test_lazy_symmetric_model_matches_eager_unsymmetrized_optimum(seed):
     rng = Random(seed)
     request = order(
         [
@@ -213,7 +212,12 @@ def test_lazy_symmetric_model_matches_eager_unsymmetrized_optimum(seed, exact_op
         ],
     )
     types = compatible_box_types(request)
-    expected = exact_optimum(request)
+    reference = _build_model(request, types, z3.Context(), symmetry=False)
+    full_support(reference)
+    reference.optimizer.set(timeout=10_000)
+    assert reference.optimizer.check() == z3.sat
+    assert all(handle.lower().eq(handle.upper()) for handle in reference.objectives)
+    expected = _extract(request, reference, reference.optimizer.model())
     messages = []
     solve(request, types, empty_plan(request), seed % 2, lambda *message: messages.append(message))
     status, actual = messages[-1]
